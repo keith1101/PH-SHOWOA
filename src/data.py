@@ -540,7 +540,7 @@ class Data:
         self.backend = create_backend(self, self.compute_backend)
         print("Compute backend requested: %s" % self.compute_backend)
         print("Compute backend selected: %s" % self.backend.name)
-        if self.backend.is_cuda and self.parallel_workers != 1:
+        if self.backend.is_cuda and not getattr(self.backend, "multi_process_safe", False) and self.parallel_workers != 1:
             print(
                 "CUDA backend uses a single process. Forcing workers from %d to 1"
                 % self.parallel_workers

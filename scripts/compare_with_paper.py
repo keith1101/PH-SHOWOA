@@ -446,7 +446,7 @@ def parse_args(argv: list[str] | None = None):
         help='Paper instance names to run, or "all" for the full target file.',
     )
     parser.add_argument("--paper-targets", type=Path, default=TARGETS, help="CSV file with paper targets.")
-    parser.add_argument("--repeats", type=int, default=10, help="Number of solver runs per instance.")
+    parser.add_argument("--repeats", type=int, default=36, help="Number of solver runs per instance.")
     parser.add_argument("--seed_start", type=int, default=42, help="First random seed to use.")
     parser.add_argument("--timeout", type=int, default=900, help="Timeout per solver run, in seconds.")
     parser.add_argument("--output_csv", type=Path, default=None, help="Optional CSV report path.")
@@ -455,8 +455,8 @@ def parse_args(argv: list[str] | None = None):
         default="",
         help="Extra raw CLI flags appended to every solver invocation.",
     )
-    parser.add_argument("--pop_size", type=int, default=64)
-    parser.add_argument("--max_iter", type=int, default=500)
+    parser.add_argument("--pop_size", type=int, default=36)
+    parser.add_argument("--max_iter", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--hybrid_mode", default="ph_showoa")
     parser.add_argument("--compute_backend", default="auto")

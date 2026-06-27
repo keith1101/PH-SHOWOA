@@ -1,219 +1,213 @@
-# PH-SHOWOA Python
+# PH-SHOWOA Python (Hybrid CPU/GPU)
 
-PH-SHOWOA Python is a from-paper implementation target for `journal.pone.0343262.pdf`: a parallel hybrid Spotted Hyena Optimizer and Whale Optimization Algorithm for the Vehicle Routing Problem with Simultaneous Pickup and Delivery and Time Windows (VRPSPDTW).
+PH-SHOWOA Python is a highly optimized, parallel hybrid implementation of the Spotted Hyena Optimizer and Whale Optimization Algorithm for the Vehicle Routing Problem with Simultaneous Pickup and Delivery and Time Windows (VRPSPDTW), based on the paper `journal.pone.0343262.pdf`.
 
-This repository also includes a hybrid CPU-GPU execution path. The CPU keeps the metaheuristic control logic, while the CUDA backend accelerates batched route evaluation and move scoring.
+This repository features a **hybrid CPU-GPU execution architecture**. The CPU manages the complex metaheuristic control logic, while the CUDA backend acts as a massive accelerator for batched route evaluations and move scoring. 
 
 ## Features
 
-- Solution initialization with `rcrs`, `rcrs_random`, or `td`.
-- SHO-style peer-guided route recombination and mutation.
-- WOA-style best-guided route and segment intensification.
-- Adaptive hybrid probability between SHO and WOA behaviours.
-- Ablation mode for PH-SHOWOA, SHO-only, and WOA-only runs.
-- Simulated-annealing acceptance for non-improving updates.
-- Periodic best-solution local search with stagnation-triggered diversification.
-- Optional process-level parallel solution updates via `--workers`.
-- Optional CUDA backend for batched route evaluation and insertion scoring.
-- Parent selection with `circle`, `tournament`, or `rdslection`.
-- Population replacement with `one_on_one` or `elitism`.
-- Local search operators: `2-opt`, `2-opt*`, `or-opt`, and `2-exchange`.
-- Escape from local optima with random/related removal and greedy/regret insertion.
-- Edge pruning based on time-window and capacity feasibility.
-- Best-solution output via `--output`.
+- **Blazing Fast**: Native CUDA backend and Numba CPU kernels bypass Python bottlenecks.
+- **Highly Parallel**: Process-level parallel population updates (`--workers`).
+- **Algorithm Options**: Solution initialization (`rcrs`, `td`), SHO-style recombination, WOA-style intensification, ablation modes (`sho`, `woa`).
+- **Deep Local Search**: `2-opt`, `2-opt*`, `or-opt`, and `2-exchange`, triggered by stagnation.
+- **Escape Local Optima**: Advanced removal (random, related) and insertion (greedy, regret) operators.
 
-## Repository Structure
+---
 
-```text
-.
-|-- README.md
-|-- pyproject.toml
-|-- data/
-|   `-- data.tar.gz
-|-- scripts/
-|   `-- compare_with_paper_logged.py
-`-- src/
-    |-- __main__.py
-    |-- main.py
-    |-- compute_backend.py
-    |-- data.py
-    |-- search_framework.py
-    |-- operator.py
-    |-- solution.py
-    |-- eval.py
-    |-- move.py
-    |-- state.py
-    |-- util.py
-    `-- config.py
+## 🛠️ Requirements & Installation
+
+**Prerequisites:**
+- Python 3.10 or newer.
+- (Optional but Recommended) An NVIDIA GPU with CUDA Toolkit installed for GPU acceleration.
+- Anaconda/Miniconda (Recommended for easy environment management).
+
+**1. Create a virtual environment:**
+```powershell
+conda create -n phshowoa python=3.10
+conda activate phshowoa
 ```
 
-`src/main.py` is the CLI entrypoint. `src/data.py` loads instances and runtime parameters. `src/search_framework.py` contains the PH-SHOWOA loop. `src/compute_backend.py` provides the CPU and CUDA route-evaluation backends. `src/operator.py`, `src/eval.py`, and `src/solution.py` implement route and solution operations.
-
-## Requirements
-
-- Python 3.10 or newer is recommended.
-- NumPy is required.
-- Numba is optional and enables the CUDA backend when installed.
-- A supported NVIDIA GPU and CUDA runtime are required to use `--compute_backend cuda`.
-
-## Installation
-
-Install the project in editable mode:
-
+**2. Install the project:**
+For standard CPU-only execution:
 ```powershell
 pip install -e .
 ```
-
-Install the CUDA extra when you want GPU support:
-
+To unlock GPU acceleration (installs Numba and CUDA dependencies):
 ```powershell
 pip install -e ".[cuda]"
 ```
 
-## Prepare Benchmark Data
-
-Benchmarks are bundled in `data/data.tar.gz`. Extract them into the `data` directory:
-
+**3. Prepare Benchmark Data:**
+Extract the bundled benchmark datasets:
 ```powershell
 tar -xzf data\data.tar.gz -C data
 ```
+This will extract benchmark instances like `data\Wang_Chen\explicit_rcdp101.vrpsdptw` into the `data/` folder.
 
-After extraction, the repository contains benchmark sets such as `data\Liu_Tang_Yao\*.vrpsdptw` and `data\Wang_Chen\explicit_*.vrpsdptw`.
+---
 
-## Run
+## 🚀 Quick Start: Maximizing Performance
 
-With the current layout, run the project directly from source with the `src` module:
+To get the absolute best performance on modern hardware (especially multi-core CPUs and NVIDIA GPUs), use the following commands. These examples use large datasets where the parallel architecture shines.
 
-```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 100
-```
-
-Run the same problem on CUDA when the GPU backend is available:
+### 1. The "Ultimate Hybrid Power" Command (CUDA + Multi-Processing + Full Local Search)
+Run this when you want to throw everything the algorithm has at a large problem. It combines GPU acceleration, multi-core CPU parallelism, and every deep local-search operator available in the solver.
 
 ```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 100 --compute_backend cuda
+python -m src --problem data\Wang_Chen\explicit_rcdp5001.vrpsdptw --runs 1 --pop_size 36 --max_iter 100 --compute_backend cuda --workers 0 --pruning --O_1_eval --two_opt --two_opt_star --or_opt 2 --two_exchange 2 --related_removal --removal_lower 0.25 --removal_upper 0.40 --regret_insertion
 ```
+* **`--compute_backend cuda`**: Activates the GPU proxy backend for lightning-fast route evaluation.
+* **`--workers 0`**: Spawns parallel CPU workers for all available cores to handle the massive local search load.
+* **`--pruning --O_1_eval ...`**: Enables O(1) evaluation, time-window pruning, and all deep local search / ruin-and-recreate operators.
 
-Write the best solution to a file:
+### 2. The "Maximum GPU" Command (CUDA + Multi-Processing - Basic Operators)
+A simpler version that still uses full parallelism but leaves the advanced local search operators off.
 
 ```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 100 --output result.txt
+python -m src --problem data\Wang_Chen\explicit_rcdp5001.vrpsdptw --runs 1 --pop_size 36 --max_iter 100 --compute_backend cuda --workers 0
+```
+* **`--compute_backend cuda`**: Activates the GPU proxy backend.
+* **`--workers 0`**: Spawns parallel CPU workers for all available cores.
+
+### 3. The "Maximum CPU" Command (Multi-Core CPU Only)
+If you don't have a dedicated NVIDIA GPU, you can still achieve massive speedups by maximizing CPU parallelism using Numba JIT-compiled CPU kernels.
+
+```powershell
+python -m src --problem data\Wang_Chen\explicit_rcdp5001.vrpsdptw --runs 1 --pop_size 36 --max_iter 10 --compute_backend cpu --workers 0
+```
+* **`--workers 0`**: Automatically detects and utilizes all available CPU cores on your machine.
+
+---
+
+## 📖 Basic Usage Examples
+
+For beginners, here are some simpler commands to understand how the solver works on smaller instances.
+
+**1. A simple basic run:**
+```powershell
+python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 36 --max_iter 1000
 ```
 
-Set a time limit, enable pruning, and enable local-search operators:
+**2. Save the best solution to a file:**
+```powershell
+python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --output result.txt
+```
 
+**3. Enable all deep local-search operators (2-opt, Or-opt, etc.) and time limits:**
 ```powershell
 python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --time 60 --pruning --two_opt --two_opt_star --or_opt 2 --two_exchange 2
 ```
 
-Run with explicit PH-SHOWOA controls:
-
+**4. Run Ablation studies (e.g., test only the Whale Optimization Algorithm mode):**
 ```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 500 --workers 0 --local_search_interval 25 --stagnation_interval 50 --diversify_ratio 0.40 --sho_mutation_prob 0.35 --compute_backend auto
+python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --hybrid_mode woa
 ```
 
-Show all CLI options:
+---
 
-```powershell
-python -m src --help
+## ⚙️ Advanced Configuration
+
+### Full Command Line Interface
+Run `python -m src --help` to see all available options.
+
+Key parameters you can tune:
+- `--runs`: Number of independent runs (Default: 10).
+- `--pop_size`: Population size, must be a perfect square (Default: 64).
+- `--local_search_interval`: Apply deep local search every N iterations (Default: 25).
+- `--stagnation_interval`: Diversify population after N iterations without improvement (Default: 50).
+- `--diversify_ratio`: Fraction of population rebuilt during diversification (Default: 0.40).
+
+### Architecture: Paper (Original) vs This Implementation
+
+This codebase significantly extends the original paper's architecture. The table and diagrams below highlight the key differences.
+
+| Aspect | Paper (Original) | This Implementation |
+|---|---|---|
+| **Execution** | Single-process, serial | Multi-process (`--workers 0` = all cores) |
+| **Route Evaluation** | Pure Python loops | Numba `@njit` CPU kernels or CUDA GPU kernels |
+| **Insertion Scoring** | Python list slicing per candidate | Batched kernel: one call scores all candidates × all positions |
+| **GPU Support** | None | Full CUDA backend with dedicated GPU proxy process |
+| **Concurrency Model** | N/A | GPU Proxy + `multiprocessing.Pool` of CPU workers |
+| **Data Layout** | Python objects (`Node`, `Route`) | Contiguous NumPy arrays (cache-friendly, GPU-transferable) |
+| **IPC Overhead** | N/A | Mega-batching masks queue latency |
+
+#### Paper Architecture (Serial, Single-Process)
+
+```mermaid
+flowchart TD
+    A["Main Process"] --> B["Initialize Population<br/>(Python loops)"]
+    B --> C["PH-SHOWOA Loop"]
+    C --> D["For each individual<br/>(serial)"]
+    D --> E["SHO/WOA Update"]
+    E --> F["Crossover + Repair<br/>(Python list ops)"]
+    F --> G["Evaluate Routes<br/>(Python for-loop)"]
+    G --> H["Local Search<br/>(2-opt, or-opt...)"]
+    H --> I["Acceptance / Replacement"]
+    I --> D
+    D --> J["Next Generation"]
+    J --> C
+
+    style A fill:#555,color:#fff
+    style G fill:#c44,color:#fff
+    style F fill:#c44,color:#fff
 ```
 
-If the project is installed, the console scripts `ph-showoa` and `vrpenstein` both point to the current `src` entrypoint.
+> **Bottleneck (red):** Route evaluation and insertion scoring run as pure Python `for` loops over every customer, every position, every route — sequentially.
 
-When `--compute_backend cuda` is selected, the backend evaluates route candidates in batches on the GPU. The CPU still controls population updates, acceptance, and search strategy. If CUDA is not available, `--compute_backend auto` falls back to CPU execution.
+#### This Implementation (Hybrid Multi-Process + GPU)
 
-## CUDA Backend
+```mermaid
+flowchart TD
+    M["Main Process<br/>(Orchestrator)"] --> INIT["Initialize Population<br/>(Numba @njit kernel)"]
+    INIT --> LOOP["PH-SHOWOA Loop"]
+    LOOP --> POOL["multiprocessing.Pool<br/>(--workers N)"]
 
-The CUDA path is intentionally hybrid rather than fully device-resident:
+    POOL --> W1["Worker 1"]
+    POOL --> W2["Worker 2"]
+    POOL --> WN["Worker N"]
 
-1. `src/data.py` parses the instance and flattens the customer metadata, distance matrix, and travel-time matrix into contiguous arrays.
-2. `src/compute_backend.py` builds a backend snapshot and launches a Numba CUDA kernel for batched route evaluation.
-3. Each kernel worker handles one candidate route at a time and checks depot endpoints, capacity, and time-window feasibility while accumulating cost.
-4. `src/eval.py` routes feasibility and cost checks through the active backend.
-5. `src/operator.py` groups insertion and repair candidates into batches so the GPU can score many possibilities in one launch.
-6. `src/search_framework.py` stays on the CPU for orchestration, selection, acceptance, and diversification.
+    W1 --> Q["IPC Request Queue"]
+    W2 --> Q
+    WN --> Q
 
-Practical constraints:
+    Q --> GPU["GPU Proxy Process<br/>(single CUDA context)"]
+    GPU --> MB["Mega-Batch Aggregator"]
+    MB --> KERN["CUDA Kernel Launch<br/>(thousands of threads)"]
+    KERN --> RQ["Response Queues"]
 
-- `--workers` is forced to `1` when the CUDA backend is active because the backend is not multi-process safe.
-- GPU acceleration is most useful when the batch size is large enough to keep the device busy.
-- `--compute_backend auto` tries CUDA first and falls back to CPU if CUDA is unavailable.
+    RQ --> W1
+    RQ --> W2
+    RQ --> WN
 
-## Usage
+    W1 --> LS["Local Search<br/>(Numba @njit)"]
+    W2 --> LS
+    WN --> LS
 
-```text
-python -m src --problem PROBLEM [--pruning] [--output OUTPUT] [--time TIME]
-              [--runs RUNS] [--g_1 G_1] [--max_iter MAX_ITER]
-              [--pop_size POP_SIZE] [--workers WORKERS]
-              [--compute_backend COMPUTE_BACKEND]
-              [--local_search_interval LOCAL_SEARCH_INTERVAL]
-              [--stagnation_interval STAGNATION_INTERVAL]
-              [--diversify_ratio DIVERSIFY_RATIO]
-              [--sho_mutation_prob SHO_MUTATION_PROB]
-              [--hybrid_mode HYBRID_MODE]
-              [--init INIT] [--k_init K_INIT] [--no_crossover]
-              [--cross_repair CROSS_REPAIR] [--k_crossover K_CROSSOVER]
-              [--parent_selection PARENT_SELECTION] [--replacement REPLACEMENT]
-              [--ls_prob LS_PROB] [--skip_finding_lo] [--O_1_eval]
-              [--two_opt] [--two_opt_star] [--or_opt OR_OPT]
-              [--two_exchange TWO_EXCHANGE] [--elo ELO]
-              [--random_removal] [--related_removal] [--alpha ALPHA]
-              [--removal_lower REMOVAL_LOWER] [--removal_upper REMOVAL_UPPER] [--regret_insertion]
-              [--greedy_insertion] [--rd_removal_insertion] [--bks BKS]
-              [--random_seed RANDOM_SEED]
+    LS --> ACC["Acceptance / Replacement"]
+    ACC --> LOOP
+
+    style GPU fill:#76b900,color:#fff
+    style KERN fill:#76b900,color:#fff
+    style MB fill:#76b900,color:#fff
+    style W1 fill:#2563eb,color:#fff
+    style W2 fill:#2563eb,color:#fff
+    style WN fill:#2563eb,color:#fff
+    style POOL fill:#2563eb,color:#fff
 ```
 
-### Main Parameters
+> **Green = GPU path.** The dedicated GPU Proxy process holds the only CUDA context. It collects requests from all blue CPU workers into a single mega-batch, launches one massive CUDA kernel, then fans results back out.
+>
+> **Blue = CPU worker pool.** Each worker runs SHO/WOA updates, crossover, and local search in parallel. Heavy insertion scoring is delegated to the GPU proxy via fast IPC queues.
 
-- `--problem`: path to the input instance. Required.
-- `--time`: time limit in seconds. Defaults to no limit.
-- `--runs`: number of independent runs. Default: `10`.
-- `--g_1`: number of generations without improvement before a run stops. Default: `500`.
-- `--max_iter`: number of PH-SHOWOA update iterations. Defaults to `--g_1`.
-- `--pop_size`: population size. This must be a perfect square because the code uses a Latin grid for `(lambda, gamma)` pairs. Default: `64`.
-- `--workers`: number of worker processes for parallel individual updates. Use `1` for serial execution, `0` for all available CPU cores. Default: `0`.
-- `--local_search_interval`: apply deep local search to the global best every N iterations. Default: `25`.
-- `--stagnation_interval`: diversify after N iterations without global-best improvement. Default: `50`.
-- `--diversify_ratio`: fraction of non-elite individuals rebuilt during diversification. Default: `0.40`.
-- `--sho_mutation_prob`: probability of applying light mutation after the SHO-style recombination step. Default: `0.35`.
-- `--hybrid_mode`: algorithm mode, one of `ph_showoa`, `sho`, or `woa`. Default: `ph_showoa`.
-- `--compute_backend`: compute mode, one of `auto`, `cpu`, or `cuda`. Default: `auto`. `cuda` uses the GPU backend; `auto` tries CUDA and falls back to CPU.
-- `--random_seed`: random seed. Default: `42`.
-- `--bks`: best-known solution cost, used to report the time needed to reach or improve it.
-- `--output`: file path for the best solution. If omitted, the best solution is printed to stdout.
+#### Key Components
 
-### Initialization, Crossover, and Replacement
+1. **`GpuProxyBackend`** — A multi-process-safe wrapper that spawns a dedicated GPU process. Worker processes serialize route/insertion requests onto a shared queue; the proxy drains the queue, mega-batches them, and launches a single CUDA kernel.
+2. **`CudaComputeBackend`** — Direct CUDA backend using Numba `@cuda.jit` kernels for batched route evaluation and insertion scoring. Used inside the GPU proxy process.
+3. **`BaseComputeBackend`** — Pure Numba `@njit` CPU kernels. Still significantly faster than raw Python thanks to compiled machine code and `nogil` parallelism.
+4. **Mega-Batching** — The GPU proxy doesn't process one worker's request at a time. It drains the queue to collect requests from multiple workers, concatenates all routes into one giant batch, and launches a single kernel. This saturates GPU cores and amortizes kernel launch overhead.
 
-- `--init`: insertion heuristic for initialization. Supported values in the code: `rcrs`, `rcrs_random`, `td`.
-- `--k_init`: number of candidates considered during initialization. Defaults to the number of customers.
-- `--no_crossover`: skip crossover and copy a parent directly to the child.
-- `--cross_repair`: repair heuristic after crossover. Supported values: `rcrs`, `td`, `regret`.
-- `--k_crossover`: number of candidates considered during post-crossover repair. Defaults to the number of customers.
-- `--parent_selection`: parent-selection strategy: `circle`, `tournament`, or `rdslection`.
-- `--replacement`: replacement strategy: `one_on_one` or `elitism`.
-
-### Local Search and Escaping Local Optima
-
-- `--ls_prob`: probability of applying local search to each solution. Default: `1.0`.
-- `--skip_finding_lo`: skip the local-optimum search phase.
-- `--O_1_eval`: enable O(1) move evaluation for supported operators.
-- `--two_opt`: enable 2-opt.
-- `--two_opt_star`: enable 2-opt*. This is enabled by default in `config.py`; the flag also enables it explicitly from the CLI.
-- `--or_opt N`: enable or-opt with maximum segment length `N`.
-- `--two_exchange N`: enable 2-exchange with maximum exchange length `N`.
-- `--elo N`: number of escape-local-optima attempts. Default: `1`.
-- `--random_removal`: enable random removal.
-- `--related_removal`: enable related removal.
-- `--alpha`: relatedness coefficient used with `--related_removal`. Default: `1.0`.
-- `--removal_lower`, `--removal_upper`: lower and upper customer-removal ratios. Defaults: `0.2` and `0.4`.
-- `--regret_insertion`: enable regret insertion during repair.
-- `--greedy_insertion`: enable greedy insertion during repair.
-- `--rd_removal_insertion`: enable random removal and insertion.
-
-## Input Instance Format
-
-The current parser requires `EDGE_WEIGHT_TYPE: EXPLICIT` and reads the following sections:
-
+### Input Instance Format
+The solver expects files with `EDGE_WEIGHT_TYPE: EXPLICIT`. The format looks like this:
 ```text
 NAME: <instance_name>
 TYPE: <problem_type>
@@ -233,60 +227,16 @@ DEPOT_SECTION
 <depot_node_id>
 ```
 
-`DIMENSION` includes the depot, so the number of customers used by the code is `DIMENSION - 1`.
+### Benchmarking Scripts
 
-## PH-SHOWOA Configuration Example
-
-```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --pruning --time 60 --max_iter 500 --pop_size 64 --workers 0 --local_search_interval 25 --stagnation_interval 50 --diversify_ratio 0.40 --sho_mutation_prob 0.35 --init rcrs --O_1_eval --two_opt --two_opt_star --or_opt 2 --two_exchange 2 --elo 1 --related_removal --removal_lower 0.25 --removal_upper 0.40 --regret_insertion
-```
-
-Run ablations with the same settings by changing `--hybrid_mode`:
-
-```powershell
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 500 --workers 1 --hybrid_mode sho
-python -m src --problem data\Liu_Tang_Yao\200_1.vrpsdptw --runs 1 --pop_size 64 --max_iter 500 --workers 1 --hybrid_mode woa
-```
-
-## Paper Performance Test
-
-Paper targets from Tables 3-5 are stored in `tests/paper_performance_targets.csv`. The performance test is gated because it runs stochastic optimization:
-
-```powershell
-$env:RUN_PAPER_PERF="1"
-$env:PAPER_PERF_INSTANCES="RCdp1001"
-$env:PAPER_PERF_POP_SIZE="64"
-$env:PAPER_PERF_MAX_ITER="500"
-python -m unittest tests.test_paper_performance
-```
-
-Use a comma-separated instance list such as `Rdp101,Cdp101,RCdp101`, or `all` for the complete target file. Optional tolerances are `PAPER_PERF_DISTANCE_TOLERANCE` and `PAPER_PERF_VEHICLE_SLACK`. Use `PAPER_PERF_EXTRA_ARGS` to pass additional CLI flags to every run.
-
-For 100-customer instances, the full `64 x 500` serial run may exceed the default timeout. Either raise the timeout:
-
-```powershell
-$env:PAPER_PERF_TIMEOUT="3600"
-```
-
-or run a faster harness check first:
-
-```powershell
-$env:RUN_PAPER_PERF="1"
-$env:PAPER_PERF_INSTANCES="Rdp101,Cdp101,RCdp101"
-$env:PAPER_PERF_POP_SIZE="16"
-$env:PAPER_PERF_MAX_ITER="50"
-$env:PAPER_PERF_DISTANCE_TOLERANCE="0.50"
-$env:PAPER_PERF_VEHICLE_SLACK="5"
-$env:PAPER_PERF_EXTRA_ARGS="--pruning --O_1_eval --two_opt --two_opt_star --or_opt 2 --two_exchange 2 --related_removal --regret_insertion"
-python -m unittest tests.test_paper_performance
-```
-
-## Batch Benchmarking
-
-For repeated multi-instance comparisons with per-instance logs, summaries, and ETA output, use:
-
+**Batch Run Against Paper Targets:**
+Run repeated multi-instance comparisons with per-instance logs and summaries:
 ```powershell
 python scripts\compare_with_paper_logged.py --compute_backend cuda
 ```
 
-The script writes one result directory per instance and stores run-level logs, solution snapshots, and aggregate summaries.
+**Kaggle Benchmark:**
+To compare CPU and CUDA directly on a Kaggle notebook environment:
+```powershell
+python scripts\kaggle_run.py --backends cpu cuda
+```

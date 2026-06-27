@@ -16,11 +16,12 @@ from .config import (
     RCRS_RANDOM,
     TD,
 )
-from .eval import _chk_route_list
+from .eval import _chk_route_list, evaluate_route_batch
 from .move import Move
 from .operator import do_local_search, new_route_insertion
 from .solution import Route, Solution
 from .util import argsort, mean, rand, randint
+from .compute_backend import init_pool_worker
 
 
 @dataclass
@@ -55,34 +56,57 @@ def update_best_solution(s, best_s, used, run, gen, data):
             state.find_bks_gen = gen
 
 
-def initialization(pop, pop_fit, pop_argrank, data):
+def _init_single_solution_worker(task):
+    import sys
+    index, init_mode, data, seed, lambda_gamma = task
+    print(f"[Worker {index}] Starting initialization", file=sys.stderr)
+    sys.stderr.flush()
+    rng = random.Random(seed)
+    data.rng = rng
+    data.init = init_mode
+    data.ksize = data.k_init
+    if init_mode in {RCRS, RCRS_RANDOM}:
+        data.n_insert = RCRS
+    elif init_mode == TD:
+        data.n_insert = TD
+
+    if lambda_gamma is not None:
+        data.lambda_gamma = lambda_gamma
+    elif init_mode == RCRS_RANDOM:
+        data.lambda_gamma = (rand(0, 1, data.rng), rand(0, 1, data.rng))
+
+    data.in_initialization = True
+    s = Solution(data)
+    new_route_insertion(s, data)
+    s.cal_cost(data)
+    data.in_initialization = False
+    print(f"[Worker {index}] Finished initialization", file=sys.stderr)
+    sys.stderr.flush()
+    return index, s
+
+
+def initialization(pop, pop_fit, pop_argrank, data, executor=None):
     length = len(pop)
     for i in range(length):
         pop[i].clear(data)
     print("Initialization, using %s method" % data.init)
-    if data.init == RCRS:
-        data.n_insert = RCRS
-        data.ksize = data.k_init
-        for i in range(length):
-            data.lambda_gamma = data.latin[i]
-            new_route_insertion(pop[i], data)
-    elif data.init == RCRS_RANDOM:
-        data.n_insert = RCRS
-        data.ksize = data.k_init
-        for i in range(length):
-            data.lambda_gamma = (rand(0, 1, data.rng), rand(0, 1, data.rng))
-            print("lambda, gamma: %f, %f" % data.lambda_gamma)
-            new_route_insertion(pop[i], data)
-    elif data.init == TD:
-        data.ksize = data.k_init
-        data.n_insert = TD
-        for i in range(length):
-            new_route_insertion(pop[i], data)
-
+    
+    tasks = []
     for i in range(length):
-        pop[i].cal_cost(data)
-        pop_fit[i] = pop[i].cost
-        print("Solution %d, cost %.4f" % (i, pop_fit[i]))
+        lambda_gamma = data.latin[i] if data.init == RCRS else None
+        seed = data.seed + 100000 + i
+        tasks.append((i, data.init, data, seed, lambda_gamma))
+        
+    if executor is None:
+        results = [_init_single_solution_worker(t) for t in tasks]
+    else:
+        results = list(executor.map(_init_single_solution_worker, tasks))
+        
+    for index, s in results:
+        pop[index].copy_from(s)
+        pop_fit[index] = s.cost
+        print("Solution %d, cost %.4f" % (index, pop_fit[index]))
+
     argsort(pop_fit, pop_argrank, length)
     print("Initialization done.")
 
@@ -175,24 +199,34 @@ def _append_customer_to_best_position(s: Solution, node: int, data) -> bool:
     best_pos = 1
     best_delta = float("inf")
 
-    flag, best_new_route_cost = _chk_route_list([data.DC, node, data.DC], data)
-    if flag:
-        best_delta = best_new_route_cost
+    # Build a batch of all insertion candidate routes
+    routes_to_check = [[data.DC, node, data.DC]]
+    route_meta = [(-1, 1)]  # Maps routes_to_check index -> (r_index, pos)
 
+    original_costs = {}
     for r_index in range(s.len()):
         route = s.get(r_index)
-        original_cost = route.cal_cost(data)
+        original_costs[r_index] = route.cal_cost(data)
         for pos in range(1, len(route.node_list)):
-            flag, new_cost = _chk_route_list(
-                route.node_list[:pos] + [node] + route.node_list[pos:], data
-            )
-            if not flag:
-                continue
-            delta = new_cost - original_cost
-            if delta - best_delta < -PRECISION:
-                best_delta = delta
-                best_route = r_index
-                best_pos = pos
+            routes_to_check.append(route.node_list[:pos] + [node] + route.node_list[pos:])
+            route_meta.append((r_index, pos))
+
+    # Evaluate all candidates in a single batch
+    results = evaluate_route_batch(routes_to_check, data)
+
+    # First result is starting a new route
+    new_route_flag, new_route_cost = results[0]
+    if new_route_flag:
+        best_delta = new_route_cost
+
+    for (r_index, pos), (flag, cost) in zip(route_meta[1:], results[1:]):
+        if not flag:
+            continue
+        delta = cost - original_costs[r_index]
+        if delta - best_delta < -PRECISION:
+            best_delta = delta
+            best_route = r_index
+            best_pos = pos
 
     if best_delta == float("inf"):
         return False
@@ -232,33 +266,89 @@ def feasible_or_repair(
     pending: List[int] = []
     pending_set: Set[int] = set()
 
+    # Fast duplicates-across-routes check
+    seen_anywhere = set()
+    has_duplicates_across_routes = False
     for route in s.route_list:
-        customers: List[int] = []
-        route_seen: Set[int] = set()
+        route_seen = set()
         for node in route.node_list:
             if not _is_customer(node, data):
                 continue
-            if node in seen or node in route_seen:
-                if node not in seen and node not in pending_set:
-                    pending.append(node)
-                    pending_set.add(node)
+            if node in route_seen:
                 continue
-            customers.append(node)
+            if node in seen_anywhere:
+                has_duplicates_across_routes = True
+                break
             route_seen.add(node)
+            seen_anywhere.add(node)
+        if has_duplicates_across_routes:
+            break
 
-        if len(customers) == 0:
-            continue
+    if not has_duplicates_across_routes:
+        candidate_routes = []
+        routes_customers = []
+        for route in s.route_list:
+            customers = []
+            route_seen = set()
+            for node in route.node_list:
+                if not _is_customer(node, data):
+                    continue
+                if node in route_seen:
+                    # Duplicate within the same route goes to pending
+                    if node not in pending_set:
+                        pending.append(node)
+                        pending_set.add(node)
+                    continue
+                customers.append(node)
+                route_seen.add(node)
+            
+            if len(customers) == 0:
+                continue
+            candidate_routes.append([data.DC] + customers + [data.DC])
+            routes_customers.append(customers)
 
-        flag, _ = _chk_route_list([data.DC] + customers + [data.DC], data)
-        if flag:
-            clean.append(_make_route(customers, data))
-            for node in customers:
-                seen.add(node)
-        else:
-            for node in customers:
-                if node not in seen and node not in pending_set:
-                    pending.append(node)
-                    pending_set.add(node)
+        # Batch evaluate all candidate routes
+        results = evaluate_route_batch(candidate_routes, data) if candidate_routes else []
+
+        for customers, (flag, _) in zip(routes_customers, results):
+            if flag:
+                clean.append(_make_route(customers, data))
+                for node in customers:
+                    seen.add(node)
+            else:
+                for node in customers:
+                    if node not in pending_set:
+                        pending.append(node)
+                        pending_set.add(node)
+    else:
+        # Fallback to sequential checks if duplicates exist across routes
+        for route in s.route_list:
+            customers = []
+            route_seen = set()
+            for node in route.node_list:
+                if not _is_customer(node, data):
+                    continue
+                if node in seen or node in route_seen:
+                    if node not in seen and node not in pending_set:
+                        pending.append(node)
+                        pending_set.add(node)
+                    continue
+                customers.append(node)
+                route_seen.add(node)
+
+            if len(customers) == 0:
+                continue
+
+            flag, _ = _chk_route_list([data.DC] + customers + [data.DC], data)
+            if flag:
+                clean.append(_make_route(customers, data))
+                for node in customers:
+                    seen.add(node)
+            else:
+                for node in customers:
+                    if node not in seen and node not in pending_set:
+                        pending.append(node)
+                        pending_set.add(node)
 
     pending = [node for node in pending if node not in seen]
     pending_set = set(pending)
@@ -413,14 +503,25 @@ def _inject_elite_segments(
             selected_customers.update(segment)
 
     _remove_customers(child, selected_customers, data)
-    for segment in segments:
-        if rng.random() < 0.70:
-            flag, _ = _chk_route_list([data.DC] + segment + [data.DC], data)
-            if flag:
-                child.append(_make_route(segment, data))
-                continue
-        for node in segment:
-            _append_customer_to_best_position(child, node, data)
+    try_segment_route = [rng.random() < 0.70 for _ in segments]
+    
+    routes_to_check = []
+    routes_indices = []
+    for idx, segment in enumerate(segments):
+        if try_segment_route[idx]:
+            routes_to_check.append([data.DC] + segment + [data.DC])
+            routes_indices.append(idx)
+
+    # Batch evaluate segment routes
+    results = evaluate_route_batch(routes_to_check, data) if routes_to_check else []
+    results_map = {routes_indices[i]: results[i][0] for i in range(len(routes_indices))}
+
+    for idx, segment in enumerate(segments):
+        if try_segment_route[idx] and results_map.get(idx, False):
+            child.append(_make_route(segment, data))
+        else:
+            for node in segment:
+                _append_customer_to_best_position(child, node, data)
 
 
 def _build_solution_from_sequence(sequence: List[int], data) -> Solution:
@@ -567,7 +668,7 @@ def _install_move_memory(data, small_opts: List[str]) -> None:
         data.mem["2exchange"] = [Move() for _ in range(max_num * max_num)]
 
 
-def _deep_local_search_best(s: Solution, data) -> None:
+def _deep_local_search_best(s: Solution, data, executor=None) -> None:
     saved_small_opts = list(data.small_opts)
     saved_mem: Dict[str, List[Move]] = data.mem
     saved_escape = data.escape_local_optima
@@ -580,11 +681,11 @@ def _deep_local_search_best(s: Solution, data) -> None:
         data.vehicle.max_num = max(data.vehicle.max_num, s.len() + 2)
 
         _install_move_memory(data, ["2opt"])
-        do_local_search(s, data)
+        do_local_search(s, data, executor)
         _install_move_memory(data, ["oropt_single", "oropt_double"])
-        do_local_search(s, data)
+        do_local_search(s, data, executor)
         _install_move_memory(data, ["2exchange"])
-        do_local_search(s, data)
+        do_local_search(s, data, executor)
         s.update(data)
         s.cal_cost(data)
     finally:
@@ -648,21 +749,31 @@ def search_framework(data, best_s):
     run = 1
     completed_runs = 0
 
-    while run <= data.runs:
-        print("---------------------------------Run %d---------------------------" % run)
-        initialization(pop, pop_fit, pop_argrank, data)
-        used = int(time.perf_counter() - stime)
-        print("already consumed %d sec" % used)
+    executor = None
+    if data.parallel_workers != 1 and data.p_size > 1 and getattr(data.backend, "multi_process_safe", True):
+        initargs = ()
+        initializer = None
+        if hasattr(data.backend, "id_queue"):
+            initializer = init_pool_worker
+            initargs = (data.backend.id_queue, data.backend._request_queue, data.backend._response_queues)
+        executor = concurrent.futures.ProcessPoolExecutor(
+            max_workers=_worker_count(data),
+            initializer=initializer,
+            initargs=initargs
+        )
 
-        update_best_solution(pop[pop_argrank[0]], best_s, used, run, 0, data)
-        output(pop, pop_fit, pop_argrank, data)
+    try:
+        while run <= data.runs:
+            print("---------------------------------Run %d---------------------------" % run)
+            initialization(pop, pop_fit, pop_argrank, data, executor)
+            used = int(time.perf_counter() - stime)
+            print("already consumed %d sec" % used)
+    
+            update_best_solution(pop[pop_argrank[0]], best_s, used, run, 0, data)
+            output(pop, pop_fit, pop_argrank, data)
+    
+            last_improvement_gen = 0
 
-        last_improvement_gen = 0
-        executor = None
-        if data.parallel_workers != 1 and data.p_size > 1 and not getattr(data.backend, "is_cuda", False):
-            executor = concurrent.futures.ProcessPoolExecutor(max_workers=_worker_count(data))
-
-        try:
             for gen in range(1, data.max_iter + 1):
                 best_before_generation = best_s.cost
                 a, p_hybrid = _dynamic_parameters(gen, data.max_iter)
@@ -703,7 +814,7 @@ def search_framework(data, best_s):
                 if gen % data.local_search_interval == 0:
                     print("Periodic deep local search on global best.")
                     elite = best_s.clone()
-                    _deep_local_search_best(elite, data)
+                    _deep_local_search_best(elite, data, executor)
                     update_best_solution(elite, best_s, used, run, gen, data)
                     _inject_global_best(pop, pop_fit, pop_argrank, best_s)
 
@@ -735,18 +846,18 @@ def search_framework(data, best_s):
                 if data.tmax != -1 and used > int(data.tmax):
                     time_exhausted = True
                     break
-        finally:
-            if executor is not None:
-                executor.shutdown(wait=True)
 
-        print("Run %d finishes" % run)
-        output(pop, pop_fit, pop_argrank, data)
-        completed_runs += 1
+            print("Run %d finishes" % run)
+            output(pop, pop_fit, pop_argrank, data)
+            completed_runs += 1
 
-        data.rng.seed(data.seed + run)
-        if time_exhausted:
-            break
-        run += 1
+            data.rng.seed(data.seed + run)
+            if time_exhausted:
+                break
+            run += 1
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
 
     print("------------Summary-----------")
     print("Total %d runs, total consumed %d sec" % (completed_runs, int(used)))
@@ -757,3 +868,5 @@ def search_framework(data, best_s):
     )
     print("Time to surpass BKS: %d." % int(state.find_bks_time))
     best_s.check(data)
+    if hasattr(data.backend, "shutdown"):
+        data.backend.shutdown()
