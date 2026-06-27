@@ -134,7 +134,7 @@ This codebase significantly extends the original paper's architecture. The table
 #### Paper Architecture (Serial, Single-Process)
 
 ```mermaid
-flowchart TD
+flowchart LR
     A["Main Process"] --> B["Initialize Population<br/>(Python loops)"]
     B --> C["PH-SHOWOA Loop"]
     C --> D["For each individual<br/>(serial)"]
@@ -157,7 +157,7 @@ flowchart TD
 #### This Implementation (Hybrid Multi-Process + GPU)
 
 ```mermaid
-flowchart TD
+flowchart LR
     M["Main Process<br/>(Orchestrator)"] --> INIT["Initialize Population<br/>(Numba @njit kernel)"]
     INIT --> LOOP["PH-SHOWOA Loop"]
     LOOP --> POOL["multiprocessing.Pool<br/>(--workers N)"]
