@@ -77,43 +77,58 @@ def _normalize_route(route: Sequence[int]) -> List[int]:
     return [int(node) for node in route]
 
 
-def _evaluate_route_cpu(route: Sequence[int], snapshot: BackendSnapshot) -> RouteEval:
-    nl = _normalize_route(route)
-    if len(nl) < 2:
+@njit(nogil=True, cache=True)
+def _evaluate_route_cpu_kernel(
+    nl, depot, start_time, capacity, dispatch_cost, unit_cost,
+    delivery, pickup, start_window, end_window, service, dist, time_matrix
+):
+    length = len(nl)
+    if length < 2:
         return False, 0.0
-    if nl[0] != snapshot.depot or nl[-1] != snapshot.depot:
+    if nl[0] != depot or nl[-1] != depot:
         return False, 0.0
-    if len(nl) == 2:
+    if length == 2:
         return True, 0.0
 
     load = 0.0
-    for node in nl[1:-1]:
-        load += snapshot.delivery[node]
-    if load > snapshot.capacity:
+    for i in range(1, length - 1):
+        load += delivery[nl[i]]
+    if load > capacity:
         return False, 0.0
 
     distance = 0.0
-    time_val = snapshot.start_time
+    time_val = start_time
     prev = nl[0]
-    for node in nl[1:]:
-        load = load - snapshot.delivery[node] + snapshot.pickup[node]
-        if load > snapshot.capacity:
+    for i in range(1, length):
+        node = nl[i]
+        load = load - delivery[node] + pickup[node]
+        if load < 0 or load > capacity:
             return False, 0.0
 
-        time_val += snapshot.time[prev, node]
-        if time_val > snapshot.end[node]:
+        time_val += time_matrix[prev, node]
+        if time_val > end_window[node]:
             return False, 0.0
-        if time_val < snapshot.start[node]:
-            time_val = snapshot.start[node]
-        time_val += snapshot.service[node]
+        if time_val < start_window[node]:
+            time_val = start_window[node]
+        time_val += service[node]
 
-        distance += snapshot.dist[prev, node]
+        distance += dist[prev, node]
         prev = node
 
-    return True, snapshot.dispatch_cost + distance * snapshot.unit_cost
+    return True, dispatch_cost + distance * unit_cost
 
 
-@njit(nogil=True)
+def _evaluate_route_cpu(route: Sequence[int], snapshot: BackendSnapshot) -> RouteEval:
+    nl = np.array(_normalize_route(route), dtype=np.int32)
+    return _evaluate_route_cpu_kernel(
+        nl,
+        int(snapshot.depot), float(snapshot.start_time), float(snapshot.capacity), float(snapshot.dispatch_cost), float(snapshot.unit_cost),
+        snapshot.delivery, snapshot.pickup, snapshot.start, snapshot.end, snapshot.service, snapshot.dist, snapshot.time
+    )
+
+
+
+@njit(nogil=True, cache=True)
 def _evaluate_insertions_cpu_kernel(
     route, candidates, depot, start_time, capacity, dispatch_cost, unit_cost,
     delivery, pickup, start, end, service, dist, time_matrix,
@@ -646,6 +661,31 @@ def create_backend(data, mode: str = "auto") -> BaseComputeBackend:
         raise ValueError("Unknown compute backend: %s" % mode)
 
     snapshot = BackendSnapshot.from_data(data)
+    
+    # Pre-compile JIT kernels in the main process to avoid multiprocessing cache race condition on Windows
+    try:
+        dummy_nl = np.array([0, 0], dtype=np.int32)
+        dummy_candidates = np.array([0], dtype=np.int32)
+        
+        # Compile _evaluate_route_cpu_kernel
+        _evaluate_route_cpu_kernel(
+            dummy_nl,
+            int(snapshot.depot), float(snapshot.start_time), float(snapshot.capacity), float(snapshot.dispatch_cost), float(snapshot.unit_cost),
+            snapshot.delivery, snapshot.pickup, snapshot.start, snapshot.end, snapshot.service, snapshot.dist, snapshot.time
+        )
+        
+        # Compile _evaluate_insertions_cpu_kernel
+        dummy_feasible = np.zeros(2, dtype=np.int32)
+        dummy_costs = np.zeros(2, dtype=np.float64)
+        _evaluate_insertions_cpu_kernel(
+            dummy_nl, dummy_candidates,
+            int(snapshot.depot), float(snapshot.start_time), float(snapshot.capacity), float(snapshot.dispatch_cost), float(snapshot.unit_cost),
+            snapshot.delivery, snapshot.pickup, snapshot.start, snapshot.end, snapshot.service, snapshot.dist, snapshot.time,
+            dummy_feasible, dummy_costs
+        )
+    except Exception as e:
+        print("Warning: JIT pre-compilation failed: %s" % e)
+
     if requested in {"auto", "cuda"}:
         cuda_available = False
         if cuda is not None:

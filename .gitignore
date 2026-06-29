@@ -17,3 +17,6 @@ paper_batch_cuda/
 data/
 resource/
 utils/
+batch_results/
+paper-deck/
+tmp/
