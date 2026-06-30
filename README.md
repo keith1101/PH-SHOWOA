@@ -46,6 +46,34 @@ This will extract benchmark instances like `data\Wang_Chen\explicit_rcdp101.vrps
 
 ---
 
+## C++ CPU-Only Setup
+
+If you want to run the C++ solver first without CUDA, you only need a C++17 compiler, CMake, and OpenMP support. On Windows, this repository has been tested with the Strawberry GCC toolchain and Ninja. Python is only needed if you want to run the benchmark wrapper script afterward.
+
+**1. Configure a fresh build directory:**
+```powershell
+cmake -S src_cpp -B src_cpp/build_cpu -G Ninja -DCMAKE_BUILD_TYPE=Release
+```
+
+**2. Build the C++ executable:**
+```powershell
+cmake --build src_cpp/build_cpu -j 8
+```
+
+**3. Run a single instance on CPU:**
+```powershell
+src_cpp\build_cpu\phshowoa_cpp.exe data\Wang_Chen\explicit_rcdp1001.vrpsdptw --runs 1 --max_iter 1000 --pop_size 30 --random_seed 43 --paper_flags --compute_backend cpu --workers 0
+```
+
+`--compute_backend cpu` forces the CPU backend, `--workers 0` uses all available CPU cores through OpenMP, and `--paper_flags` enables the paper-style operator set used by the benchmark.
+
+If you want to run the full C++ benchmark batch after the build, use:
+```powershell
+python scripts\benchmark_cpp.py
+```
+
+---
+
 ## 🚀 Quick Start: Maximizing Performance
 
 To get the absolute best performance on modern hardware (especially multi-core CPUs and NVIDIA GPUs), use the following commands. These examples use large datasets where the parallel architecture shines.
@@ -240,3 +268,4 @@ To compare CPU and CUDA directly on a Kaggle notebook environment:
 ```powershell
 python scripts\kaggle_run.py --backends cpu cuda
 ```
+
