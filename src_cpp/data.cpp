@@ -3,6 +3,13 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+
+namespace {
+constexpr double PENALTY_FACTOR = 10.0;
+}
 
 // Trim from start (in place)
 static inline void ltrim(std::string &s) {
@@ -205,6 +212,30 @@ void Data::parse_args(int argc, char* argv[]) {
             output_path = argv[++i];
         } else if (arg == "--compute_backend" && i + 1 < argc) {
             compute_backend = argv[++i];
+        } else if (arg == "--no_gpu_solution_eval") {
+            gpu_solution_eval = false;
+        } else if (arg == "--gpu_batched_insertion") {
+            gpu_batched_insertion = true;
+        } else if (arg == "--gpu_route_min_batch" && i + 1 < argc) {
+            gpu_route_min_batch = std::stoi(argv[++i]);
+        } else if (arg == "--gpu_route_min_work" && i + 1 < argc) {
+            gpu_route_min_work = std::stoi(argv[++i]);
+        } else if (arg == "--gpu_insertion_min_batch" && i + 1 < argc) {
+            gpu_insertion_min_batch = std::stoi(argv[++i]);
+        } else if (arg == "--gpu_serialize_workers") {
+            gpu_serialize_workers = true;
+        } else if (arg == "--gpu_request_broker") {
+            gpu_request_broker = true;
+        } else if (arg == "--execution_policy" && i + 1 < argc) {
+            execution_policy = argv[++i];
+            if (execution_policy != "legacy" && execution_policy != "adaptive" &&
+                execution_policy != "cuda_force") {
+                std::cerr << "Unknown execution policy '" << execution_policy
+                          << "'. Use 'legacy', 'adaptive', or 'cuda_force'." << std::endl;
+                execution_policy = "legacy";
+            }
+        } else if (arg == "--gpu_solution_verify_interval" && i + 1 < argc) {
+            gpu_solution_verify_interval = std::max(0, std::stoi(argv[++i]));
         } else if (arg == "--pruning") {
             pruning = true;
         } else if (arg == "--O_1_eval") {
@@ -229,7 +260,10 @@ void Data::parse_args(int argc, char* argv[]) {
             regret_insertion = true;
         } else if (arg == "--init" && i + 1 < argc) {
             init = argv[++i];
+        } else if (arg == "--k_init" && i + 1 < argc) {
+            k_init = std::stoi(argv[++i]);
         } else if (arg == "--paper_flags") {
+            paper_flags = true;
             pruning = true;
             O_1_evl = true;
             two_opt = true;
@@ -245,7 +279,37 @@ void Data::parse_args(int argc, char* argv[]) {
             related_removal = true;
             regret_insertion = true;
             init = "sa";
+        } else if (arg == "--profile") {
+            profile = true;
+        } else if (arg == "--architecture" && i + 1 < argc) {
+            architecture = argv[++i];
+            if (architecture != "legacy" && architecture != "hybrid_v2") {
+                std::cerr << "Unknown architecture '" << architecture << "'. Use 'legacy' or 'hybrid_v2'." << std::endl;
+                architecture = "legacy";
+            }
+        } else if (arg == "--objective" && i + 1 < argc) {
+            objective = argv[++i];
+            if (objective != "weighted" && objective != "lexicographic") {
+                std::cerr << "Unknown objective '" << objective << "'. Use 'weighted' or 'lexicographic'." << std::endl;
+                objective = "weighted";
+            }
+        } else if (arg == "--num_islands" && i + 1 < argc) {
+            num_islands = std::stoi(argv[++i]);
+        } else if (arg == "--migration_interval" && i + 1 < argc) {
+            migration_interval = std::stoi(argv[++i]);
+        } else if (arg == "--migration_size" && i + 1 < argc) {
+            migration_size = std::stoi(argv[++i]);
+        } else if (arg == "--migration_mode" && i + 1 < argc) {
+            migration_mode = argv[++i];
         }
+    }
+
+    num_islands = std::max(1, num_islands);
+    migration_interval = std::max(1, migration_interval);
+    migration_size = std::max(1, migration_size);
+    if (architecture == "hybrid_v2") {
+        objective = "lexicographic";
+        gpu_batched_insertion = true;
     }
 
     std::printf("Initial random seed: %d\n", seed);
@@ -255,7 +319,29 @@ void Data::parse_args(int argc, char* argv[]) {
     }
     std::printf("Max PH-SHOWOA iterations: %d\n", max_iter);
     std::printf("Population size: %d\n", p_size);
+    if (k_init == -1) {
+        k_init = customer_num;
+    }
+    std::printf("k_init: %d\n", k_init);
     std::printf("Compute backend: %s\n", compute_backend.c_str());
+    std::printf("GPU solution evaluation: %s\n", gpu_solution_eval ? "on" : "off");
+    std::printf("GPU batched insertion: %s\n", gpu_batched_insertion ? "on" : "off");
+    std::printf("GPU route min batch: %d\n", gpu_route_min_batch);
+    std::printf("GPU route min work: %d\n", gpu_route_min_work);
+    std::printf("GPU insertion min batch: %d\n", gpu_insertion_min_batch);
+    std::printf("GPU serialize workers: %s\n", gpu_serialize_workers ? "on" : "off");
+    std::printf("GPU request broker: %s\n", gpu_request_broker ? "on" : "off");
+    std::printf("Execution policy: %s\n", execution_policy.c_str());
+    std::printf("GPU solution verify interval: %d\n", gpu_solution_verify_interval);
+    std::printf("Profiling: %s\n", profile ? "on" : "off");
+    std::printf("Architecture: %s\n", architecture.c_str());
+    std::printf("Objective mode: %s\n", objective.c_str());
+    std::printf("Island Model - Num islands: %d\n", num_islands);
+    std::printf("Island Model - Migration interval: %d\n", migration_interval);
+    std::printf("Island Model - Migration size: %d\n", migration_size);
+    std::printf("Island Model - Migration mode: %s\n", migration_mode.c_str());
+
+    pre_process();
 
     // Generate Latin square slots
     int sr = static_cast<int>(std::sqrt(static_cast<double>(p_size)));
@@ -270,5 +356,68 @@ void Data::parse_args(int argc, char* argv[]) {
                 latin.push_back({lambda_val, gamma_val});
             }
         }
+    }
+}
+
+void Data::pre_process() {
+    pm.assign(customer_num + 1, std::vector<bool>(customer_num + 1, true));
+    if (pruning) {
+        for (int i = 0; i <= customer_num; ++i) {
+            for (int j = 0; j <= customer_num; ++j) {
+                if (i == j) {
+                    pm[i][j] = false;
+                    continue;
+                }
+                const double delivery_sum = node[i].delivery + node[j].delivery;
+                const double pickup_sum = node[i].pickup + node[j].pickup;
+                if (delivery_sum > vehicle.capacity || pickup_sum > vehicle.capacity) {
+                    pm[i][j] = false;
+                    continue;
+                }
+                const double earliest_depart = node[i].start + node[i].s_time + time[i][j];
+                if (earliest_depart > node[j].end) {
+                    pm[i][j] = false;
+                }
+            }
+        }
+    }
+
+    rm.assign(customer_num + 1, std::vector<double>(customer_num + 1, std::numeric_limits<double>::infinity()));
+    rm_argrank.assign(customer_num + 1, std::vector<int>());
+    if (related_removal) {
+        for (int i = 0; i <= customer_num; ++i) {
+            rm_argrank[i].resize(customer_num + 1);
+            std::iota(rm_argrank[i].begin(), rm_argrank[i].end(), 0);
+            for (int j = 0; j <= customer_num; ++j) {
+                if (i == j || i == DC || j == DC) {
+                    rm[i][j] = std::numeric_limits<double>::infinity();
+                    continue;
+                }
+                const double late_penalty = alpha * std::max(node[j].start - node[i].s_time - time[i][j] - node[i].end, 0.0);
+                const double early_penalty = alpha * PENALTY_FACTOR * std::max(node[i].start + node[i].s_time + time[i][j] - node[j].end, 0.0);
+                rm[i][j] = dist[i][j] + late_penalty + early_penalty;
+            }
+            std::sort(rm_argrank[i].begin(), rm_argrank[i].end(), [&](int a, int b) {
+                return rm[i][a] < rm[i][b];
+            });
+        }
+    }
+
+    destroy_opts.clear();
+    repair_opts.clear();
+    if (related_removal) {
+        destroy_opts.push_back("related_removal");
+    }
+    if (random_removal || destroy_opts.empty()) {
+        destroy_opts.push_back("random_removal");
+    }
+    if (regret_insertion) {
+        repair_opts.push_back("regret_insertion");
+    }
+    if (greedy_insertion) {
+        repair_opts.push_back("greedy_insertion");
+    }
+    if (repair_opts.empty()) {
+        repair_opts.push_back("regret_insertion");
     }
 }

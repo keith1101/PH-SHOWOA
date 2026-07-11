@@ -7,6 +7,13 @@
 #include "move.h"
 #include "compute_backend.h"
 
+struct ConstructionConfig {
+    int ksize = 0;
+    std::string insertion_mode = "rcrs";
+    double lambda = 0.0;
+    double gamma = 0.0;
+};
+
 // Helper definitions
 bool _chk_route_list(const std::vector<int>& nl, const Data& data, BaseComputeBackend* backend);
 std::vector<RouteEval> evaluate_route_batch(const std::vector<std::vector<int>>& routes, const Data& data, BaseComputeBackend* backend);
@@ -22,6 +29,21 @@ void find_local_optima(Solution& s, const Data& data, BaseComputeBackend* backen
 void do_local_search(Solution& s, const Data& data, BaseComputeBackend* backend);
 
 void new_route_insertion(Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng, int initial_node = -1);
+void new_route_insertion(
+    Solution& s,
+    const Data& data,
+    const ConstructionConfig& config,
+    BaseComputeBackend* backend,
+    std::mt19937& rng,
+    int initial_node = -1
+);
+void new_route_insertion_batched(
+    std::vector<Solution>& solutions,
+    const Data& data,
+    const std::vector<ConstructionConfig>& configs,
+    BaseComputeBackend* backend,
+    std::vector<std::mt19937>& rngs
+);
 
 void related_removal(Solution& s, const Data& data, std::mt19937& rng);
 void random_removal(Solution& s, const Data& data, std::mt19937& rng);

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <set>
 #include "data.h"
+#include "profile.h"
 
 // Define INFEASIBLE constant
 #define INFEASIBLE_VAL -1
@@ -105,6 +106,14 @@ inline bool equal_attr(const Attr& a, const Attr& b) {
     );
 }
 
+
+inline double route_total_cost_from_distance(const Data& data, double distance, bool has_customers) {
+    if (!has_customers) {
+        return 0.0;
+    }
+    return data.vehicle.d_cost + distance * data.vehicle.unit_cost;
+}
+
 class Route {
 public:
     std::vector<int> node_list;
@@ -194,13 +203,8 @@ public:
     }
 
     double cal_cost(const Data& data) {
-        // FITNESS_DISTANCE_WEIGHT = 1.0, FITNESS_VEHICLE_WEIGHT = 2000.0
-        transcost = self.dist * 1.0; 
-        double dispatchcost = 0.0;
-        if (!isempty()) {
-            dispatchcost = 2000.0;
-        }
-        return transcost + dispatchcost;
+        transcost = self.dist * data.vehicle.unit_cost;
+        return route_total_cost_from_distance(data, self.dist, !isempty());
     }
 
     bool isempty() const {
@@ -252,10 +256,18 @@ public:
             pre_node = node;
         }
 
-        cost = 2000.0 + distance * 1.0;
+        cost = route_total_cost_from_distance(data, distance, true);
         return true;
     }
 };
+
+
+inline double route_total_cost(const Route& route, const Data& data) {
+    if (route.isempty()) {
+        return 0.0;
+    }
+    return data.vehicle.d_cost + route.transcost;
+}
 
 class Solution {
 public:
@@ -347,6 +359,7 @@ public:
     }
 
     double cal_cost(const Data& data) {
+        ScopedProfileTimer timer(data.profile, profile_registry().fitness, len());
         cost = 0.0;
         for (Route& route : route_list) {
             cost += route.cal_cost(data);
@@ -368,6 +381,11 @@ public:
         }
         ss << "vehicle (route) number: " << length << "\n";
         ss.precision(6);
+        double total_distance = 0.0;
+        for (const Route& route : route_list) {
+            total_distance += route.self.dist;
+        }
+        ss << "Total distance: " << std::fixed << total_distance << "\n";
         ss << "Total cost: " << std::fixed << cost << "\n";
         return ss.str();
     }

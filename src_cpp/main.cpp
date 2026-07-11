@@ -14,13 +14,16 @@ int main(int argc, char* argv[]) {
     }
 
     std::string problem_file = argv[1];
+    std::cout << "Loading problem file: " << problem_file << std::endl;
     Data data;
     if (!data.load_problem(problem_file)) {
         std::cerr << "Failed to load problem file." << std::endl;
         return 1;
     }
 
+    std::cout << "Done load_problem" << std::endl;
     data.parse_args(argc, argv);
+    std::cout << "Done parse_args" << std::endl;
 
     // Run the PH-SHOWOA metaheuristic framework
     Solution best_s;

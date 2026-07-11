@@ -53,6 +53,15 @@ public:
     double sho_mutation_prob = 0.35;
     std::string hybrid_mode = "ph_showoa";
     std::string compute_backend = "auto";
+    bool gpu_solution_eval = true;
+    bool gpu_batched_insertion = false;
+    int gpu_route_min_batch = 128;
+    int gpu_route_min_work = 0;
+    int gpu_insertion_min_batch = 128;
+    bool gpu_serialize_workers = false;
+    bool gpu_request_broker = false;
+    std::string execution_policy = "adaptive"; // "legacy", "adaptive", or "cuda_force"
+    int gpu_solution_verify_interval = 0;
     std::string init = "rcrs";
     int k_init = -1;
     std::string cross_repair = "rcrs";
@@ -63,6 +72,16 @@ public:
     bool skip_finding_lo = false;
     bool O_1_evl = false;
     bool no_crossover = false;
+    bool profile = false;
+    bool paper_flags = false;
+    std::string architecture = "legacy"; // "legacy" or "hybrid_v2"
+    std::string objective = "weighted"; // "weighted" or "lexicographic"
+
+    // Island Model Configuration
+    int num_islands = 1;
+    int migration_interval = 50;
+    int migration_size = 1;
+    std::string migration_mode = "tournament"; // "ring" or "broadcast" or "tournament"
 
     // Advanced search configuration
     bool two_opt = false;
@@ -81,6 +100,15 @@ public:
     bool greedy_insertion = false;
     bool rd_removal_insertion = false;
     double bks = 0.0;
+    std::string n_insert = "rcrs";
+    std::pair<double, double> lambda_gamma{0.0, 0.0};
+    int ksize = 0;
+
+    std::vector<std::vector<double>> rm;
+    std::vector<std::vector<int>> rm_argrank;
+    std::vector<std::vector<bool>> pm;
+    std::vector<std::string> destroy_opts;
+    std::vector<std::string> repair_opts;
 
     std::vector<std::pair<double, double>> latin;
     std::vector<std::string> small_opts;
@@ -88,4 +116,5 @@ public:
     // Parser functions
     bool load_problem(const std::string& filepath);
     void parse_args(int argc, char* argv[]);
+    void pre_process();
 };

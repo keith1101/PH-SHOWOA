@@ -12,6 +12,7 @@ set(SOURCES
     main.cpp
     data.cpp
     compute_backend.cpp
+    solution_encoding.cpp
     operator.cpp
     search_framework.cpp
 )
@@ -23,6 +24,8 @@ if(ENABLE_CUDA)
             message(FATAL_ERROR "ENABLE_CUDA=ON on Windows requires cl.exe in PATH. Open a Visual Studio Developer Command Prompt or set CMAKE_CUDA_HOST_COMPILER before configuring.")
         endif()
         set(CMAKE_CUDA_HOST_COMPILER "${CUDA_HOST_COMPILER}")
+        # CUDA 12.x may reject newer MSVC toolsets during compiler detection.
+        # Add the override early so CMake's CUDA try-compile can complete.
     endif()
 
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -43,4 +46,23 @@ target_link_libraries(phshowoa_cpp PRIVATE OpenMP::OpenMP_CXX)
 
 if(ENABLE_CUDA)
     target_link_libraries(phshowoa_cpp PRIVATE CUDA::cudart)
+endif()
+
+set(ENCODING_TEST_SOURCES
+    encoding_parity_tests.cpp
+    data.cpp
+    compute_backend.cpp
+    solution_encoding.cpp
+    operator.cpp
+)
+
+if(ENABLE_CUDA)
+    list(APPEND ENCODING_TEST_SOURCES compute_backend.cu)
+endif()
+
+add_executable(phshowoa_cpp_encoding_tests ${ENCODING_TEST_SOURCES})
+target_link_libraries(phshowoa_cpp_encoding_tests PRIVATE OpenMP::OpenMP_CXX)
+
+if(ENABLE_CUDA)
+    target_link_libraries(phshowoa_cpp_encoding_tests PRIVATE CUDA::cudart)
 endif()
