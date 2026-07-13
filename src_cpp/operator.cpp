@@ -785,28 +785,6 @@ static void _materialize_move_routes(
     out_routes.push_back(std::move(second));
 }
 
-static bool evaluate_materialized_move_cpu(
-    const Solution& s,
-    const Move& move,
-    const Data& data,
-    double& delta_cost
-) {
-    std::vector<std::vector<int>> routes;
-    _materialize_move_routes(s, move, data, routes);
-    double new_cost = 0.0;
-    for (const std::vector<int>& route : routes) {
-        RouteEval eval = _evaluate_route_cpu(route, data);
-        if (!eval.feasible) return false;
-        new_cost += eval.cost;
-    }
-    double old_cost = route_total_cost(s.get(move.r_indice[0]), data);
-    if (move.r_indice[1] >= 0) {
-        old_cost += route_total_cost(s.get(move.r_indice[1]), data);
-    }
-    delta_cost = new_cost - old_cost;
-    return true;
-}
-
 static bool _evaluate_move_batch(
     const Solution& s,
     const Data& data,
@@ -937,13 +915,14 @@ static bool _evaluate_move_batch(
                     std::abs(candidate_deltas[i] - best_delta) > INSERTION_TIE_EPSILON) {
                     continue;
                 }
+                Move cpu_move;
+                cpu_move.copy_from(candidates[i]);
                 verified[i] = 1;
                 refined = true;
-                double cpu_delta = std::numeric_limits<double>::infinity();
-                if (!evaluate_materialized_move_cpu(s, candidates[i], data, cpu_delta)) {
+                if (!eval_move(s, cpu_move, data, nullptr)) {
                     candidate_deltas[i] = std::numeric_limits<double>::infinity();
                 } else {
-                    candidate_deltas[i] = cpu_delta;
+                    candidate_deltas[i] = cpu_move.delta_cost;
                 }
             }
             if (refined) continue;

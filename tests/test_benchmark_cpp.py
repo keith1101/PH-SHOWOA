@@ -24,6 +24,12 @@ class BenchmarkIntegrityTest(unittest.TestCase):
         self.assertEqual(len(resolved), 16)
         self.assertEqual(len({name.lower() for name in resolved}), 16)
 
+    def test_liu_tang_yao_instances_are_discovered(self):
+        targets = load_targets()
+        resolved = validate_requested_instances(["1000_1", "1000_2"], targets)
+        self.assertEqual(resolved, ["1000_1", "1000_2"])
+        self.assertTrue(Path(targets["1000_1"]["path"]).is_file())
+
     def test_fingerprint_changes_when_architecture_changes(self):
         args = SimpleNamespace(
             max_iter=100,
@@ -69,6 +75,12 @@ class BenchmarkIntegrityTest(unittest.TestCase):
         args.gpu_solution_verify_interval = 25
         verified = build_run_fingerprint("RCdp1001", "instance.vrpsdptw", 42, args, config, executable)
         self.assertNotEqual(adaptive, verified)
+
+        args.k_init = 1
+        one_construction = build_run_fingerprint("RCdp1001", "instance.vrpsdptw", 42, args, config, executable)
+        args.k_init = 2
+        two_constructions = build_run_fingerprint("RCdp1001", "instance.vrpsdptw", 42, args, config, executable)
+        self.assertNotEqual(one_construction, two_constructions)
 
 
 if __name__ == "__main__":

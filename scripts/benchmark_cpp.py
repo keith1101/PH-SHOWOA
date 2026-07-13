@@ -15,7 +15,7 @@ TARGETS_CSV = ROOT / "tests" / "paper_performance_targets.csv"
 SOLVER_EXE = ROOT / "build_cuda" / "phshowoa_cpp.exe"
 CPU_SOLVER_EXE = ROOT / "build_cpu" / "phshowoa_cpp.exe"
 
-BENCHMARK_SCHEMA_VERSION = "6"
+BENCHMARK_SCHEMA_VERSION = "7"
 
 DEFAULT_INSTANCES = [
     "RCdp1001",
@@ -83,6 +83,19 @@ def load_targets():
                 "target_vehicles": int(row["target_vehicles"]),
                 "target_distance": float(row["target_distance"]),
             }
+
+    # Liu-Tang-Yao instances are useful scalability benchmarks even though the
+    # repository does not currently carry paper reference objectives for them.
+    lty_dir = ROOT / "data" / "Liu_Tang_Yao"
+    if lty_dir.is_dir():
+        for instance_path in sorted(lty_dir.glob("*.vrpsdptw")):
+            instance_name = instance_path.stem
+            targets.setdefault(instance_name.lower(), {
+                "instance": instance_name,
+                "path": str(instance_path),
+                "target_vehicles": -1,
+                "target_distance": math.nan,
+            })
     return targets
 
 def validate_requested_instances(requested_instances, targets):
@@ -128,6 +141,7 @@ def build_run_fingerprint(instance_name, instance_path, seed, args, config, solv
         "seed": seed,
         "max_iter": args.max_iter,
         "pop_size": args.pop_size,
+        "k_init": getattr(args, "k_init", None),
         "architecture": args.architecture,
         "objective": args.objective,
         "num_islands": args.num_islands,
@@ -262,6 +276,8 @@ def run_solver(instance_name, instance_path, seed, repeat, args, config):
         "--gpu_route_min_work", str(config.gpu_route_min_work),
         "--gpu_insertion_min_batch", str(config.gpu_insertion_min_batch),
     ]
+    if getattr(args, "k_init", None) is not None:
+        cmd.extend(["--k_init", str(args.k_init)])
     if args.architecture != "legacy":
         cmd.extend(["--architecture", args.architecture])
     if config.gpu_batched_insertion:
@@ -521,7 +537,8 @@ def run_benchmark_config(args, config, targets):
 
         paper_td = target["target_distance"]
         paper_nv = target["target_vehicles"]
-        paper_nv_indices = [i for i, nv in enumerate(runs_nv) if nv == paper_nv]
+        has_paper_target = paper_nv >= 0 and math.isfinite(paper_td) and paper_td > 0
+        paper_nv_indices = [i for i, nv in enumerate(runs_nv) if has_paper_target and nv == paper_nv]
         best_td_at_paper_nv = (
             min(runs_td[i] for i in paper_nv_indices)
             if paper_nv_indices else math.nan
@@ -530,12 +547,12 @@ def run_benchmark_config(args, config, targets):
             ((best_td_at_paper_nv - paper_td) / paper_td) * 100.0
             if paper_nv_indices and paper_td > 0 else math.nan
         )
-        gap_avg_pct = ((avg_td - paper_td) / paper_td) * 100.0
-        gap_best_pct = ((best_td - paper_td) / paper_td) * 100.0
+        gap_avg_pct = ((avg_td - paper_td) / paper_td) * 100.0 if has_paper_target else math.nan
+        gap_best_pct = ((best_td - paper_td) / paper_td) * 100.0 if has_paper_target else math.nan
 
         # Vehicle gap vs paper (positive = more vehicles than paper)
-        avg_nv_gap = avg_nv - paper_nv
-        best_nv_gap = best_nv - paper_nv
+        avg_nv_gap = avg_nv - paper_nv if has_paper_target else math.nan
+        best_nv_gap = best_nv - paper_nv if has_paper_target else math.nan
 
         # Distance gap at same/best NV context
         gap_best_nv_td_pct = ((best_td_at_best_nv - paper_td) / paper_td) * 100.0 if paper_td > 0 else math.nan
@@ -584,8 +601,13 @@ def run_benchmark_config(args, config, targets):
             **avg_profile,
         })
 
-        nv_gap_str = f"{avg_nv_gap:+.1f}NV" if not math.isnan(avg_nv_gap) else ""
-        print(f"   Done in {sum(runs_time):.2f}s | Avg NV={avg_nv:.1f}({nv_gap_str}) TD={avg_td:.2f} (Gap {gap_avg_pct:+.2f}%) | Best TD={best_td:.2f} (Gap {gap_best_pct:+.2f}%)\n", flush=True)
+        nv_gap_str = f"{avg_nv_gap:+.1f}NV" if not math.isnan(avg_nv_gap) else "n/a"
+        print(
+            f"   Done in {sum(runs_time):.2f}s | Avg NV={avg_nv:.1f}({nv_gap_str}) "
+            f"TD={avg_td:.2f} (Gap {format_optional_float(gap_avg_pct, '%', 2)}) | "
+            f"Best TD={best_td:.2f} (Gap {format_optional_float(gap_best_pct, '%', 2)})\n",
+            flush=True,
+        )
 
     return results
 
@@ -798,6 +820,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=30, help="Number of repeats per instance.")
     parser.add_argument("--max_iter", type=int, default=1000, help="PH-SHOWOA iterations per solver run.")
     parser.add_argument("--pop_size", type=int, default=30, help="Population size per solver run.")
+    parser.add_argument("--k_init", type=int, default=None, help="Construction candidate count passed to the C++ solver; omit to use the instance-size default.")
     parser.add_argument("--compute_backend", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="C++ compute backend.")
     parser.add_argument("--architecture", type=str, default="legacy", choices=["legacy", "hybrid_v2"], help="Solver architecture mode.")
     parser.add_argument("--workers", type=int, default=0, help="OpenMP worker setting passed to the C++ solver.")
@@ -938,7 +961,9 @@ def main():
         for instance in instance_order:
             instance_key = instance.lower()
             first = next(r for r in results if r["instance"].lower() == instance_key)
-            row = f"| **{first['instance']}** | {first['paper_nv']} | {first['paper_td']:.2f} |"
+            paper_nv_text = str(first["paper_nv"]) if first["paper_nv"] >= 0 else "n/a"
+            paper_td_text = format_optional_float(first["paper_td"], precision=2)
+            row = f"| **{first['instance']}** | {paper_nv_text} | {paper_td_text} |"
             for config, _ in keyed_configs:
                 result = result_lookup.get((config.label, instance_key))
                 if result is None:
