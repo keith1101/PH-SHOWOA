@@ -74,7 +74,7 @@ public:
     bool no_crossover = false;
     bool profile = false;
     bool paper_flags = false;
-    std::string architecture = "legacy"; // "legacy" or "hybrid_v2"
+    std::string architecture = "legacy"; // "legacy", "hybrid_v2", or "full_gpu"
     std::string objective = "weighted"; // "weighted" or "lexicographic"
 
     // Island Model Configuration

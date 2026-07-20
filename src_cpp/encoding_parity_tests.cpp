@@ -1,4 +1,5 @@
 #include "compute_backend.h"
+#include "deterministic_rng.h"
 #include "objective.h"
 #include "operator.h"
 #include "profile.h"
@@ -6,6 +7,8 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <numeric>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -124,6 +127,67 @@ bool run_objective_comparator_tests() {
         objective_better(fewer_vehicles, infeasible, "lexicographic"),
         "feasible objective did not dominate infeasible objective"
     );
+    return ok;
+}
+
+bool run_deterministic_rng_compatibility_tests() {
+    bool ok = true;
+    for (std::uint32_t seed : {0u, 1u, 42u, 5489u, 0xffffffffu}) {
+        std::mt19937 reference(seed);
+        LegacyMt19937 compatible(seed);
+        for (int i = 0; i < 10000; ++i) {
+            ok &= expect(reference() == compatible(), "MT19937 engine output mismatch");
+            if (!ok) return false;
+        }
+    }
+
+#ifndef _MSC_VER
+    const std::vector<std::pair<int, int>> ranges{
+        {0, 1}, {0, 2}, {1, 5}, {-7, 9}, {0, 1000}, {0, 1000000}
+    };
+    for (std::uint32_t seed : {1u, 42u, 123456789u}) {
+        for (const auto& bounds : ranges) {
+            std::mt19937 reference(seed);
+            LegacyMt19937 compatible(seed);
+            std::uniform_int_distribution<int> distribution(bounds.first, bounds.second);
+            for (int i = 0; i < 10000; ++i) {
+                ok &= expect(
+                    distribution(reference) == legacy_randint(bounds.first, bounds.second, compatible),
+                    "libstdc++ uniform_int_distribution mismatch"
+                );
+                if (!ok) return false;
+            }
+        }
+    }
+
+    for (std::uint32_t seed : {1u, 42u, 987654321u}) {
+        std::mt19937 reference(seed);
+        LegacyMt19937 compatible(seed);
+        std::uniform_real_distribution<double> distribution(-3.0, 7.0);
+        for (int i = 0; i < 10000; ++i) {
+            ok &= expect(
+                distribution(reference) == legacy_randdouble(-3.0, 7.0, compatible),
+                "libstdc++ uniform_real_distribution mismatch"
+            );
+            if (!ok) return false;
+        }
+    }
+
+    for (int size = 0; size <= 128; ++size) {
+        std::vector<int> reference(size);
+        std::iota(reference.begin(), reference.end(), 0);
+        std::vector<int> compatible = reference;
+        std::mt19937 reference_rng(42u + static_cast<std::uint32_t>(size));
+        LegacyMt19937 compatible_rng(42u + static_cast<std::uint32_t>(size));
+        std::shuffle(reference.begin(), reference.end(), reference_rng);
+        legacy_shuffle(compatible.begin(), compatible.end(), compatible_rng);
+        ok &= expect(
+            reference == compatible,
+            "libstdc++ shuffle mismatch at size " + std::to_string(size)
+        );
+        if (!ok) return false;
+    }
+#endif
     return ok;
 }
 
@@ -683,8 +747,8 @@ bool run_batched_construction_state_machine_parity() {
 
     std::vector<Solution> sequential(configs.size());
     std::vector<Solution> batched(configs.size());
-    std::vector<std::mt19937> sequential_rngs;
-    std::vector<std::mt19937> batched_rngs;
+    std::vector<LegacyMt19937> sequential_rngs;
+    std::vector<LegacyMt19937> batched_rngs;
     for (size_t i = 0; i < configs.size(); ++i) {
         sequential_rngs.emplace_back(1000 + static_cast<unsigned int>(i));
         batched_rngs.emplace_back(1000 + static_cast<unsigned int>(i));
@@ -699,7 +763,7 @@ bool run_batched_construction_state_machine_parity() {
     new_route_insertion_batched(batched, data, configs, &cpu, batched_rngs);
 
     bool ok = true;
-    std::vector<std::mt19937::result_type> expected_next_rng(configs.size());
+    std::vector<LegacyMt19937::result_type> expected_next_rng(configs.size());
     for (size_t i = 0; i < sequential.size(); ++i) {
         ok &= expect(sequential[i].len() == batched[i].len(),
                      "batched construction route count mismatch");
@@ -722,7 +786,7 @@ bool run_batched_construction_state_machine_parity() {
     std::unique_ptr<BaseComputeBackend> cuda_backend(create_backend(data, "cuda"));
     if (cuda_backend != nullptr && cuda_backend->is_gpu_backend()) {
         std::vector<Solution> cuda_batched(configs.size());
-        std::vector<std::mt19937> cuda_rngs;
+        std::vector<LegacyMt19937> cuda_rngs;
         for (size_t i = 0; i < configs.size(); ++i) {
             cuda_rngs.emplace_back(1000 + static_cast<unsigned int>(i));
         }
@@ -755,6 +819,7 @@ bool run_batched_construction_state_machine_parity() {
 
 int main() {
     bool ok = true;
+    ok &= run_deterministic_rng_compatibility_tests();
     ok &= run_objective_comparator_tests();
     ok &= run_execution_policy_tests();
 

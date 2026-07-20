@@ -67,6 +67,21 @@ src_cpp\build_cpu\phshowoa_cpp.exe data\Wang_Chen\explicit_rcdp1001.vrpsdptw --r
 
 `--compute_backend cpu` forces the CPU backend, `--workers 0` uses all available CPU cores through OpenMP, and `--paper_flags` enables the paper-style operator set used by the benchmark.
 
+### Experimental full-GPU architecture
+
+The CUDA build also exposes a device-resident research path:
+
+```powershell
+build_cuda\phshowoa_cpp.exe data\Wang_Chen\explicit_rcdp101.vrpsdptw --runs 1 --max_iter 100 --pop_size 30 --random_seed 42 --paper_flags --compute_backend cuda --architecture full_gpu --profile
+```
+
+`full_gpu` keeps problem data, population state, RNG state, generation updates,
+repair, local search, diversification, and island migration on the device. The
+CPU is used only for setup and final solution verification. This mode is
+experimental and is not selected automatically: current paper-size workloads
+remain faster on the optimized CPU/hybrid path, and cross-platform
+floating-point trajectory parity is still being validated.
+
 If you want to run the full C++ benchmark batch after the build, use:
 ```powershell
 python scripts\benchmark_cpp.py

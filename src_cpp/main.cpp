@@ -3,6 +3,7 @@
 #include "data.h"
 #include "solution.h"
 #include "search_framework.h"
+#include "full_gpu_solver.h"
 
 int main(int argc, char* argv[]) {
     std::cout << "PH-SHOWOA C++ VRPSDPTW Solver Initializing..." << std::endl;
@@ -29,7 +30,20 @@ int main(int argc, char* argv[]) {
     Solution best_s;
     best_s.cost = std::numeric_limits<double>::infinity();
 
-    search_framework(data, best_s);
+    if (data.architecture == "full_gpu") {
+#ifdef USE_CUDA
+        std::string error_message;
+        if (!run_full_gpu_solver(data, best_s, error_message)) {
+            std::cerr << "Full-GPU solver failed: " << error_message << std::endl;
+            return 2;
+        }
+#else
+        std::cerr << "Architecture 'full_gpu' requires a CUDA-enabled build." << std::endl;
+        return 2;
+#endif
+    } else {
+        search_framework(data, best_s);
+    }
 
     std::cout << "PH-SHOWOA C++ solver run completed." << std::endl;
     return 0;

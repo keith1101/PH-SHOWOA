@@ -236,6 +236,21 @@ void Data::parse_args(int argc, char* argv[]) {
             }
         } else if (arg == "--gpu_solution_verify_interval" && i + 1 < argc) {
             gpu_solution_verify_interval = std::max(0, std::stoi(argv[++i]));
+        } else if (arg == "--hybrid_mode" && i + 1 < argc) {
+            hybrid_mode = argv[++i];
+            if (hybrid_mode != "ph_showoa" && hybrid_mode != "sho" && hybrid_mode != "woa") {
+                std::cerr << "Unknown hybrid mode '" << hybrid_mode
+                          << "'. Use 'ph_showoa', 'sho', or 'woa'." << std::endl;
+                hybrid_mode = "ph_showoa";
+            }
+        } else if (arg == "--sho_mutation_prob" && i + 1 < argc) {
+            sho_mutation_prob = std::clamp(std::stod(argv[++i]), 0.0, 1.0);
+        } else if (arg == "--local_search_interval" && i + 1 < argc) {
+            local_search_interval = std::max(1, std::stoi(argv[++i]));
+        } else if (arg == "--stagnation_interval" && i + 1 < argc) {
+            stagnation_interval = std::max(1, std::stoi(argv[++i]));
+        } else if (arg == "--diversify_ratio" && i + 1 < argc) {
+            diversify_ratio = std::clamp(std::stod(argv[++i]), 0.0, 1.0);
         } else if (arg == "--pruning") {
             pruning = true;
         } else if (arg == "--O_1_eval") {
@@ -283,8 +298,10 @@ void Data::parse_args(int argc, char* argv[]) {
             profile = true;
         } else if (arg == "--architecture" && i + 1 < argc) {
             architecture = argv[++i];
-            if (architecture != "legacy" && architecture != "hybrid_v2") {
-                std::cerr << "Unknown architecture '" << architecture << "'. Use 'legacy' or 'hybrid_v2'." << std::endl;
+            if (architecture != "legacy" && architecture != "hybrid_v2" &&
+                architecture != "full_gpu") {
+                std::cerr << "Unknown architecture '" << architecture
+                          << "'. Use 'legacy', 'hybrid_v2', or 'full_gpu'." << std::endl;
                 architecture = "legacy";
             }
         } else if (arg == "--objective" && i + 1 < argc) {
@@ -307,9 +324,12 @@ void Data::parse_args(int argc, char* argv[]) {
     num_islands = std::max(1, num_islands);
     migration_interval = std::max(1, migration_interval);
     migration_size = std::max(1, migration_size);
-    if (architecture == "hybrid_v2") {
+    if (architecture == "hybrid_v2" || architecture == "full_gpu") {
         objective = "lexicographic";
         gpu_batched_insertion = true;
+    }
+    if (architecture == "full_gpu" && compute_backend == "auto") {
+        compute_backend = "cuda";
     }
 
     std::printf("Initial random seed: %d\n", seed);

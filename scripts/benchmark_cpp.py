@@ -69,6 +69,11 @@ BENCHMARK_MODE_PRESETS = {
         "gpu_batched_insertion": True,
         "no_gpu_solution_eval": False,
     },
+    "full_gpu": {
+        "compute_backend": "cuda",
+        "gpu_batched_insertion": True,
+        "no_gpu_solution_eval": False,
+    },
 }
 
 def load_targets():
@@ -133,6 +138,7 @@ def _file_sha256(path_string):
     return digest.hexdigest()
 
 def build_run_fingerprint(instance_name, instance_path, seed, args, config, solver_exe):
+    effective_architecture = "full_gpu" if config.mode == "full_gpu" else args.architecture
     payload = {
         "benchmark_schema_version": BENCHMARK_SCHEMA_VERSION,
         "solver_sha256": _file_sha256(str(solver_exe.resolve())),
@@ -142,7 +148,7 @@ def build_run_fingerprint(instance_name, instance_path, seed, args, config, solv
         "max_iter": args.max_iter,
         "pop_size": args.pop_size,
         "k_init": getattr(args, "k_init", None),
-        "architecture": args.architecture,
+        "architecture": effective_architecture,
         "objective": args.objective,
         "num_islands": args.num_islands,
         "migration_interval": args.migration_interval,
@@ -278,8 +284,9 @@ def run_solver(instance_name, instance_path, seed, repeat, args, config):
     ]
     if getattr(args, "k_init", None) is not None:
         cmd.extend(["--k_init", str(args.k_init)])
-    if args.architecture != "legacy":
-        cmd.extend(["--architecture", args.architecture])
+    effective_architecture = "full_gpu" if config.mode == "full_gpu" else args.architecture
+    if effective_architecture != "legacy":
+        cmd.extend(["--architecture", effective_architecture])
     if config.gpu_batched_insertion:
         cmd.append("--gpu_batched_insertion")
     if config.no_gpu_solution_eval:
@@ -301,16 +308,43 @@ def run_solver(instance_name, instance_path, seed, repeat, args, config):
         cmd.extend(["--migration_mode", args.migration_mode])
     
     start_t = time.perf_counter()
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     duration = time.perf_counter() - start_t
-    
-    stdout = result.stdout
-    profile = parse_profile(stdout)
-    feasibility = parse_feasibility(stdout)
-    
-    # Save stdout as log.txt
+
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
     with open(log_path, "w", encoding="utf-8") as f:
         f.write(stdout)
+        if stderr:
+            f.write("\n--- STDERR ---\n")
+            f.write(stderr)
+
+    if result.returncode != 0:
+        failure_summary = {
+            "benchmark_schema_version": BENCHMARK_SCHEMA_VERSION,
+            "fingerprint": fingerprint,
+            "seed": seed,
+            "duration_sec": duration,
+            "status": "failed",
+            "return_code": result.returncode,
+            "solver_exe": str(solver_exe),
+            "command": " ".join(cmd),
+            "run_dir": str(run_dir),
+            "solution_path": str(solution_path),
+            "log_path": str(log_path),
+        }
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(failure_summary, f, indent=4)
+        diagnostic = (stderr or stdout).strip()
+        if len(diagnostic) > 4000:
+            diagnostic = diagnostic[-4000:]
+        raise RuntimeError(
+            f"Solver failed for {instance_name}, seed {seed}, exit code "
+            f"{result.returncode}. See {log_path}.\n{diagnostic}"
+        )
+
+    profile = parse_profile(stdout)
+    feasibility = parse_feasibility(stdout)
         
     nv_match = None
     td_match = None
@@ -346,7 +380,7 @@ def run_solver(instance_name, instance_path, seed, repeat, args, config):
         "solver_exe": str(solver_exe),
         "command": " ".join(cmd),
         "objective": getattr(args, "objective", "weighted"),
-        "architecture": args.architecture,
+        "architecture": effective_architecture,
         "benchmark_mode": config.mode,
         "compute_backend": config.compute_backend,
         "workers": config.workers,
@@ -421,8 +455,9 @@ def build_configs(args):
                             label_parts.append("serialized")
                         if args.gpu_request_broker:
                             label_parts.append("broker")
-                        if args.architecture != "legacy":
-                            label_parts.append(args.architecture)
+                        effective_architecture = "full_gpu" if mode == "full_gpu" else args.architecture
+                        if effective_architecture != "legacy" and effective_architecture not in label_parts:
+                            label_parts.append(effective_architecture)
                         label = "_".join(label_parts)
                         configs.append(BenchmarkConfig(
                             workers=workers,
@@ -559,7 +594,7 @@ def run_benchmark_config(args, config, targets):
 
         results.append({
             "benchmark_schema_version": BENCHMARK_SCHEMA_VERSION,
-            "architecture": args.architecture,
+            "architecture": "full_gpu" if config.mode == "full_gpu" else args.architecture,
             "objective": getattr(args, "objective", "weighted"),
             "config": config.label,
             "benchmark_mode": config.mode,
@@ -822,7 +857,7 @@ def main():
     parser.add_argument("--pop_size", type=int, default=30, help="Population size per solver run.")
     parser.add_argument("--k_init", type=int, default=None, help="Construction candidate count passed to the C++ solver; omit to use the instance-size default.")
     parser.add_argument("--compute_backend", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="C++ compute backend.")
-    parser.add_argument("--architecture", type=str, default="legacy", choices=["legacy", "hybrid_v2"], help="Solver architecture mode.")
+    parser.add_argument("--architecture", type=str, default="legacy", choices=["legacy", "hybrid_v2", "full_gpu"], help="Solver architecture mode.")
     parser.add_argument("--workers", type=int, default=0, help="OpenMP worker setting passed to the C++ solver.")
     parser.add_argument("--worker_values", type=int, nargs="+", default=None, help="Optional sweep of OpenMP worker values.")
     parser.add_argument("--gpu_batched_insertion", action="store_true", help="Enable the C++ batched insertion scoring path.")
@@ -845,7 +880,7 @@ def main():
         default=None,
         help=(
             "Optional backend mode sweep. Modes: cpu, cuda_baseline, "
-            "cuda_no_solution_eval, cuda_batched. When omitted, the explicit "
+            "cuda_no_solution_eval, cuda_batched, full_gpu. When omitted, the explicit "
             "--compute_backend/--gpu_batched_insertion/--no_gpu_solution_eval flags are used."
         ),
     )
@@ -863,7 +898,9 @@ def main():
     parser.add_argument("--migration_size", type=int, default=1, help="Number of individuals migrating per step.")
     parser.add_argument("--migration_mode", type=str, default="tournament", choices=["ring", "broadcast", "tournament"], help="Island migration mode.")
     args = parser.parse_args()
-    if args.architecture == "hybrid_v2":
+    if args.architecture in {"hybrid_v2", "full_gpu"} or (
+        args.benchmark_modes and "full_gpu" in args.benchmark_modes
+    ):
         args.objective = "lexicographic"
     if args.output_tag is None:
         backend_tag = args.compute_backend

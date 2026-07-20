@@ -13,14 +13,12 @@
 static thread_local Move TMP_MOVE;
 
 // Simple random helpers
-static inline int randint(int low, int high, std::mt19937& rng) {
-    std::uniform_int_distribution<int> dist(low, high);
-    return dist(rng);
+static inline int randint(int low, int high, LegacyMt19937& rng) {
+    return legacy_randint(low, high, rng);
 }
 
-static inline double randdouble(double low, double high, std::mt19937& rng) {
-    std::uniform_real_distribution<double> dist(low, high);
-    return dist(rng);
+static inline double randdouble(double low, double high, LegacyMt19937& rng) {
+    return legacy_randdouble(low, high, rng);
 }
 
 static inline bool _is_customer(int node, const Data& data) {
@@ -896,6 +894,37 @@ static bool _evaluate_move_batch(
     }
 
     if (backend != nullptr && backend->is_gpu_backend()) {
+        if (candidates.size() <= 1024) {
+            bool found = false;
+            double best_delta = std::numeric_limits<double>::infinity();
+            for (const Move& candidate : candidates) {
+                std::vector<std::vector<int>> move_routes;
+                _materialize_move_routes(s, candidate, data, move_routes);
+                bool feasible = true;
+                double new_cost = 0.0;
+                for (const auto& route : move_routes) {
+                    const RouteEval evaluation = _evaluate_route_cpu(route, data);
+                    if (!evaluation.feasible) {
+                        feasible = false;
+                        break;
+                    }
+                    new_cost += evaluation.cost;
+                }
+                if (!feasible) continue;
+                double old_cost = route_total_cost(s.get(candidate.r_indice[0]), data);
+                if (candidate.r_indice[1] >= 0) {
+                    old_cost += route_total_cost(s.get(candidate.r_indice[1]), data);
+                }
+                const double delta = new_cost - old_cost;
+                if (delta < best_delta - 1e-9) {
+                    best_delta = delta;
+                    best_move.copy_from(candidate);
+                    best_move.delta_cost = delta;
+                    found = true;
+                }
+            }
+            return found;
+        }
         std::vector<unsigned char> verified(candidates.size(), 0);
         while (true) {
             int best_idx = -1;
@@ -1485,7 +1514,7 @@ void do_local_search(Solution& s, const Data& data, BaseComputeBackend* backend)
     // Multi-operator local search with perturbation
     std::vector<Solution> s_vector(1, s.clone());
     int no_improve = 0;
-    std::mt19937 temp_rng(data.seed);
+    LegacyMt19937 temp_rng(data.seed);
 
     while (no_improve < data.elo) {
         s_vector[0] = s.clone();
@@ -1502,7 +1531,7 @@ void do_local_search(Solution& s, const Data& data, BaseComputeBackend* backend)
     }
 }
 
-void perturb(std::vector<Solution>& s_vector, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+void perturb(std::vector<Solution>& s_vector, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     related_removal(s_vector[0], data, rng);
     regret_insertion(s_vector[0], data, backend, rng);
 }
@@ -1741,7 +1770,7 @@ static std::vector<std::vector<InsertionCandidateOption>> _build_insertion_optio
     return options;
 }
 
-void related_removal(Solution& s, const Data& data, std::mt19937& rng) {
+void related_removal(Solution& s, const Data& data, LegacyMt19937& rng) {
     if (data.rm_argrank.empty()) {
         random_removal(s, data, rng);
         return;
@@ -1826,11 +1855,11 @@ void related_removal(Solution& s, const Data& data, std::mt19937& rng) {
     s.cal_cost(data);
 }
 
-void random_removal(Solution& s, const Data& data, std::mt19937& rng) {
+void random_removal(Solution& s, const Data& data, LegacyMt19937& rng) {
     int total_remove = std::round(data.customer_num * randdouble(data.removal_lower, data.removal_upper, rng));
     std::vector<int> customers;
     for (int i = 1; i <= data.customer_num; ++i) customers.push_back(i);
-    std::shuffle(customers.begin(), customers.end(), rng);
+    legacy_shuffle(customers.begin(), customers.end(), rng);
 
     std::vector<int> flag(data.customer_num + 1, 0);
     for (int i = 0; i < total_remove && i < customers.size(); ++i) {
@@ -1850,7 +1879,7 @@ void random_removal(Solution& s, const Data& data, std::mt19937& rng) {
     s.update(data);
 }
 
-void greedy_insertion(Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+void greedy_insertion(Solution& s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     (void)rng;
     s.update(data);
     s.cal_cost(data);
@@ -1891,7 +1920,7 @@ void greedy_insertion(Solution& s, const Data& data, BaseComputeBackend* backend
     s.cal_cost(data);
 }
 
-void regret_insertion(Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+void regret_insertion(Solution& s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     (void)rng;
     s.update(data);
     s.cal_cost(data);
@@ -1936,7 +1965,7 @@ void regret_insertion(Solution& s, const Data& data, BaseComputeBackend* backend
     s.cal_cost(data);
 }
 
-static void regret_insertion_legacy_unused(Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static void regret_insertion_legacy_unused(Solution& s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     // Gặp các nốt chưa được sắp tuyến, chèn lại bằng regret logic
     std::vector<int> record(data.customer_num + 1, 0);
     for (int i = 0; i < s.len(); ++i) {
@@ -2192,7 +2221,7 @@ struct BatchedConstructionRequestMeta {
 static void begin_batched_construction_branch(
     BatchedConstructionState& state,
     const Data& data,
-    std::mt19937& rng
+    LegacyMt19937& rng
 ) {
     const int remaining_samples = static_cast<int>(state.sample_pool.size()) - state.sample_index;
     if (remaining_samples <= 0) {
@@ -2268,7 +2297,7 @@ static void finish_batched_construction_branch(
 static bool prepare_batched_construction_route(
     BatchedConstructionState& state,
     const Data& data,
-    std::mt19937& rng
+    LegacyMt19937& rng
 ) {
     while (!state.complete) {
         if (!state.branch_active) {
@@ -2317,7 +2346,7 @@ void new_route_insertion_batched(
     const Data& data,
     const std::vector<ConstructionConfig>& configs,
     BaseComputeBackend* backend,
-    std::vector<std::mt19937>& rngs
+    std::vector<LegacyMt19937>& rngs
 ) {
     if (solutions.size() != configs.size() || solutions.size() != rngs.size()) {
         throw std::invalid_argument("Batched construction inputs must have equal sizes");
@@ -2494,7 +2523,7 @@ void new_route_insertion(
     const Data& data,
     const ConstructionConfig& config,
     BaseComputeBackend* backend,
-    std::mt19937& rng,
+    LegacyMt19937& rng,
     int initial_node
 ) {
     if (initial_node == -1) {
@@ -2599,7 +2628,7 @@ void new_route_insertion(
     Solution& s,
     const Data& data,
     BaseComputeBackend* backend,
-    std::mt19937& rng,
+    LegacyMt19937& rng,
     int initial_node
 ) {
     ConstructionConfig config;
@@ -2610,7 +2639,7 @@ void new_route_insertion(
     new_route_insertion(s, data, config, backend, rng, initial_node);
 }
 
-static void new_route_insertion_legacy_unused(Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng, int initial_node) {
+static void new_route_insertion_legacy_unused(Solution& s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng, int initial_node) {
     // Khởi tạo RCRS chèn dần khách hàng
     std::vector<int> record(data.customer_num + 1, 0);
     for (int i = 0; i < s.len(); ++i) {
@@ -2653,7 +2682,7 @@ static void new_route_insertion_legacy_unused(Solution& s, const Data& data, Bas
     s.cal_cost(data);
 }
 
-Solution _sa_initialization(const Solution& s_0, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+Solution _sa_initialization(const Solution& s_0, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     Solution s = s_0.clone();
     s.update(data);
     s.cal_cost(data);
@@ -2938,7 +2967,7 @@ static bool _insert_customer_best_position(
     return false;
 }
 
-Solution feasible_or_repair_algorithm_10(const Solution& s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+Solution feasible_or_repair_algorithm_10(const Solution& s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     (void)rng;
     ScopedProfileTimer timer(data.profile, profile_registry().repair);
     Solution s_prime = s.clone();

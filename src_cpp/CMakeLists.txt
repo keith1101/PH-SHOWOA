@@ -46,6 +46,10 @@ target_link_libraries(phshowoa_cpp PRIVATE OpenMP::OpenMP_CXX)
 
 if(ENABLE_CUDA)
     target_link_libraries(phshowoa_cpp PRIVATE CUDA::cudart)
+    target_sources(phshowoa_cpp PRIVATE full_gpu_solver.cu)
+    target_compile_options(phshowoa_cpp PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false;--prec-div=true;--prec-sqrt=true>
+    )
 endif()
 
 set(ENCODING_TEST_SOURCES

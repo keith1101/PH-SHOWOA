@@ -14,14 +14,12 @@
 #include <omp.h>
 #endif
 
-static inline int randint(int low, int high, std::mt19937& rng) {
-    std::uniform_int_distribution<int> dist(low, high);
-    return dist(rng);
+static inline int randint(int low, int high, LegacyMt19937& rng) {
+    return legacy_randint(low, high, rng);
 }
 
-static inline double randdouble(double low, double high, std::mt19937& rng) {
-    std::uniform_real_distribution<double> dist(low, high);
-    return dist(rng);
+static inline double randdouble(double low, double high, LegacyMt19937& rng) {
+    return legacy_randdouble(low, high, rng);
 }
 
 static inline void argsort(const std::vector<double>& fit, std::vector<int>& argrank) {
@@ -41,7 +39,7 @@ static inline double mean(const std::vector<double>& fit) {
 static ConstructionConfig construction_config_for_index(
     const Data& data,
     int index,
-    std::mt19937& rng
+    LegacyMt19937& rng
 ) {
     ConstructionConfig config;
     config.ksize = data.k_init;
@@ -186,7 +184,7 @@ static inline int _tournament_peer_index(
     const std::vector<double>& pop_fit,
     int current_index,
     const Data& data,
-    std::mt19937& rng,
+    LegacyMt19937& rng,
     int k = 3
 ) {
     std::vector<int> candidates;
@@ -196,7 +194,7 @@ static inline int _tournament_peer_index(
         }
     }
     if (candidates.empty()) return current_index;
-    std::shuffle(candidates.begin(), candidates.end(), rng);
+    legacy_shuffle(candidates.begin(), candidates.end(), rng);
     
     int best_idx = candidates[0];
     for (int i = 1; i < k && i < candidates.size(); ++i) {
@@ -357,7 +355,7 @@ static inline bool _append_customer_to_best_position(Solution& s, int node, cons
     return true;
 }
 
-static inline Solution _build_solution_from_sequence(const std::vector<int>& sequence, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline Solution _build_solution_from_sequence(const std::vector<int>& sequence, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     Solution s;
     std::vector<int> route_nodes;
     for (int node : sequence) {
@@ -400,7 +398,7 @@ static inline Solution _build_solution_from_sequence(const std::vector<int>& seq
     return s_repaired;
 }
 
-static inline Solution _li_lim_random_search(const Solution& current, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline Solution _li_lim_random_search(const Solution& current, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     std::vector<int> sequence = _solution_customers(current, data);
     if (sequence.size() < 2) return current.clone();
 
@@ -424,13 +422,13 @@ static inline Solution _li_lim_random_search(const Solution& current, const Data
     return _build_solution_from_sequence(sequence, data, backend, rng);
 }
 
-static inline void _inject_elite_routes(Solution& child, const Solution& best, double c_value, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline void _inject_elite_routes(Solution& child, const Solution& best, double c_value, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     if (best.len() == 0) return;
 
     int count = std::max(1, std::min(best.len(), static_cast<int>(std::round(1.0 + std::max(0.0, 2.0 - c_value)))));
     std::vector<int> route_indices(best.len());
     for (int i = 0; i < best.len(); ++i) route_indices[i] = i;
-    std::shuffle(route_indices.begin(), route_indices.end(), rng);
+    legacy_shuffle(route_indices.begin(), route_indices.end(), rng);
 
     std::set<int> selected_customers;
     for (int i = 0; i < count; ++i) {
@@ -461,7 +459,7 @@ static inline void _inject_elite_routes(Solution& child, const Solution& best, d
     child.cal_cost(data);
 }
 
-static inline void _inject_elite_segments(Solution& child, const Solution& best, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline void _inject_elite_segments(Solution& child, const Solution& best, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     std::vector<int> candidate_routes;
     for (int i = 0; i < best.len(); ++i) {
         if (!_route_customers(best.get(i), data).empty()) {
@@ -470,7 +468,7 @@ static inline void _inject_elite_segments(Solution& child, const Solution& best,
     }
     if (candidate_routes.empty()) return;
 
-    std::shuffle(candidate_routes.begin(), candidate_routes.end(), rng);
+    legacy_shuffle(candidate_routes.begin(), candidate_routes.end(), rng);
     int segment_count = std::min(static_cast<int>(candidate_routes.size()), randint(1, 3, rng));
     std::vector<std::vector<int>> segments;
     std::set<int> selected_customers;
@@ -533,7 +531,7 @@ static inline void _inject_elite_segments(Solution& child, const Solution& best,
     child.cal_cost(data);
 }
 
-static inline Solution _woa_intensification(const Solution& current, const Solution& best, double a, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline Solution _woa_intensification(const Solution& current, const Solution& best, double a, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     double r1 = randdouble(0.0, 1.0, rng);
     double r2 = randdouble(0.0, 1.0, rng);
     double a_vector = 2.0 * a * r1 - a;
@@ -550,14 +548,14 @@ static inline Solution _woa_intensification(const Solution& current, const Solut
     return s_repaired;
 }
 
-static inline Solution _guided_route_crossover(const Solution& best, const Solution& peer, const Solution& current, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline Solution _guided_route_crossover(const Solution& best, const Solution& peer, const Solution& current, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     if (best.len() == 0) return current.clone();
     Solution child;
 
     std::set<int> kept_customers;
     std::vector<int> route_indices(best.len());
     for (int i = 0; i < best.len(); ++i) route_indices[i] = i;
-    std::shuffle(route_indices.begin(), route_indices.end(), rng);
+    legacy_shuffle(route_indices.begin(), route_indices.end(), rng);
     int take = (best.len() == 1 || randdouble(0.0, 1.0, rng) < 0.6) ? 1 : 2;
 
     for (int i = 0; i < take && i < static_cast<int>(route_indices.size()); ++i) {
@@ -626,7 +624,7 @@ static inline bool _sa_accept(
     int iteration,
     int max_iter,
     const Data& data,
-    std::mt19937& rng
+    LegacyMt19937& rng
 ) {
     double delta = new_solution.cost - current_fit;
     double scale = std::abs(current_fit);
@@ -661,7 +659,7 @@ static inline void _update_agent(
     double& out_cost,
     bool& out_accepted
 ) {
-    std::mt19937 rng(seed);
+    LegacyMt19937 rng(seed);
     Solution new_solution;
 
     if (randdouble(0.0, 1.0, rng) < p_hybrid) {
@@ -685,7 +683,7 @@ static inline void _update_agent(
     }
 }
 
-static inline void _diversify_pop(std::vector<Solution>& pop, std::vector<double>& pop_fit, std::vector<int>& pop_argrank, std::vector<bool>& pop_dirty, const Solution& best_s, const Data& data, BaseComputeBackend* backend, std::mt19937& rng) {
+static inline void _diversify_pop(std::vector<Solution>& pop, std::vector<double>& pop_fit, std::vector<int>& pop_argrank, std::vector<bool>& pop_dirty, const Solution& best_s, const Data& data, BaseComputeBackend* backend, LegacyMt19937& rng) {
     argsort_population(pop, pop_fit, pop_argrank, data);
     int elite_index = pop_argrank[0];
     pop[elite_index].copy_from(best_s);
@@ -750,7 +748,7 @@ struct Island {
     std::vector<double> pop_fit;
     std::vector<int> pop_argrank;
     std::vector<bool> pop_dirty;
-    std::mt19937 rng;
+    LegacyMt19937 rng;
     int last_improvement_gen = 0;
     Solution local_best;
 };
@@ -823,7 +821,7 @@ void search_framework(Data& data, Solution& best_s) {
     int completed_runs = 0;
 
     BaseComputeBackend* backend = create_backend(data, data.compute_backend);
-    std::mt19937 global_rng(data.seed);
+    LegacyMt19937 global_rng(data.seed);
     int omp_threads = _configure_omp_threads(data);
     if (backend != nullptr && backend->is_gpu_backend() && data.gpu_serialize_workers) {
 #ifdef _OPENMP
@@ -870,7 +868,7 @@ void search_framework(Data& data, Solution& best_s) {
                     std::printf("Generation-level CUDA construction batching enabled for %d solutions.\n", K * P);
                     std::vector<Solution> flat_population(K * P);
                     std::vector<ConstructionConfig> configs(K * P);
-                    std::vector<std::mt19937> initialization_rngs;
+                    std::vector<LegacyMt19937> initialization_rngs;
                     initialization_rngs.reserve(K * P);
                     for (int ip = 0; ip < K * P; ++ip) {
                         const int k = ip / P;
@@ -908,7 +906,7 @@ void search_framework(Data& data, Solution& best_s) {
                         const int i = ip % P;
                         try {
                             islands[k].pop[i].clear(data);
-                            std::mt19937 seed_rng(
+                            LegacyMt19937 seed_rng(
                                 data.seed + k * 1000 + run * 100000 + 1000000 + i
                             );
                             const ConstructionConfig config = construction_config_for_index(data, i, seed_rng);
@@ -1148,7 +1146,7 @@ void search_framework(Data& data, Solution& best_s) {
                     } else { // "tournament" (default)
                         std::vector<int> island_indices(K);
                         for (int k = 0; k < K; ++k) island_indices[k] = k;
-                        std::shuffle(island_indices.begin(), island_indices.end(), global_rng);
+                        legacy_shuffle(island_indices.begin(), island_indices.end(), global_rng);
 
                         for (int i = 0; i < K - 1; i += 2) {
                             int k1 = island_indices[i];
@@ -1200,7 +1198,7 @@ void search_framework(Data& data, Solution& best_s) {
                 if (use_batched_population_construction(data, backend, p_size)) {
                     std::printf("Generation-level CUDA construction batching enabled for %d solutions.\n", p_size);
                     std::vector<ConstructionConfig> configs(p_size);
-                    std::vector<std::mt19937> initialization_rngs;
+                    std::vector<LegacyMt19937> initialization_rngs;
                     initialization_rngs.reserve(p_size);
                     for (int i = 0; i < p_size; ++i) {
                         initialization_rngs.emplace_back(data.seed + 100000 + i);
@@ -1229,7 +1227,7 @@ void search_framework(Data& data, Solution& best_s) {
                     for (int i = 0; i < p_size; ++i) {
                         try {
                             pop[i].clear(data);
-                            std::mt19937 seed_rng(data.seed + 100000 + i);
+                            LegacyMt19937 seed_rng(data.seed + 100000 + i);
                             const ConstructionConfig config = construction_config_for_index(data, i, seed_rng);
                             new_route_insertion(pop[i], data, config, backend, seed_rng);
                             if (data.init == "sa") {
