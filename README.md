@@ -12,6 +12,31 @@ This repository features a **hybrid CPU-GPU execution architecture**. The CPU ma
 - **Deep Local Search**: `2-opt`, `2-opt*`, `or-opt`, and `2-exchange`, triggered by stagnation.
 - **Escape Local Optima**: Advanced removal (random, related) and insertion (greedy, regret) operators.
 
+## Paper-faithful Python profile
+
+Pass `--paper_flags` to select the Python profile aligned with Algorithms 1–10.
+It uses SA initialization, 1,000 iterations, a population of 30, and 30
+independent runs unless an explicit numeric CLI option overrides that default.
+The profile applies local search at zero-based iterations `0, 25, ...`, triggers
+diversification after 50 consecutive non-improving iterations, and uses the
+paper's fixed ranking score `2000 × NV + TD`.
+
+Every profile validates capacity using initial delivery load, pickup updates,
+the depot return time, the declared vehicle limit, and exactly-once customer
+coverage. Failed repair candidates are rejected before SA acceptance. The
+discrete WOA encircling/spiral mapping and diversification procedure are
+documented implementation choices because the paper does not define them fully.
+
+```powershell
+python -m src --problem data\Wang_Chen\explicit_rcdp101.vrpsdptw --paper_flags --workers 1
+```
+
+The SA initialization schedule is configurable with `--sa_t0`, `--sa_alpha`,
+`--sa_tmin`, and `--sa_itermax`; defaults are `100`, `0.95`, `0.1`, and `100`.
+The fixed score is retained for compatibility with the chosen experiment model;
+it is not a mathematical guarantee that every fewer-vehicle solution outranks
+every longer-distance alternative.
+
 ---
 
 ## 🛠️ Requirements & Installation

@@ -7,6 +7,8 @@ import numpy as np
 import multiprocessing
 import os
 
+from .config import FITNESS_DISTANCE_WEIGHT, FITNESS_VEHICLE_WEIGHT
+
 try:
     from numba import cuda, njit  # type: ignore
     import warnings
@@ -59,8 +61,10 @@ class BackendSnapshot:
             capacity=float(data.vehicle.capacity),
             start_time=float(data.start_time),
             end_time=float(data.end_time),
-            dispatch_cost=float(data.vehicle.d_cost),
-            unit_cost=float(data.vehicle.unit_cost),
+            # Search uses the repository's documented fixed paper score.  The
+            # instance coefficients remain available on Vehicle for reporting.
+            dispatch_cost=float(FITNESS_VEHICLE_WEIGHT),
+            unit_cost=float(FITNESS_DISTANCE_WEIGHT),
             delivery=np.ascontiguousarray(delivery),
             pickup=np.ascontiguousarray(pickup),
             start=np.ascontiguousarray(start),
@@ -163,11 +167,8 @@ def _evaluate_insertions_cpu_kernel(
                 else:
                     node = route[i - 1]
                     
-                if i == route_len:
-                    break
-                    
                 load = load - delivery[node] + pickup[node]
-                if load > capacity:
+                if load < 0.0 or load > capacity:
                     is_feasible = False
                     break
 
@@ -335,11 +336,8 @@ if cuda is not None:  # pragma: no cover - optional GPU path
             else:
                 node = route[i - 1]
                 
-            if i == route_len:
-                break
-                
             load = load - delivery[node] + pickup[node]
-            if load > capacity:
+            if load < 0.0 or load > capacity:
                 is_feasible = False
                 break
 

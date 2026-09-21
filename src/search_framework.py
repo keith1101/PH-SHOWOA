@@ -57,6 +57,8 @@ def update_best_solution(s, best_s, used, run, gen, data):
 
 
 def quick_check_feasibility(s: Solution, data) -> bool:
+    if s.len() > data.vehicle.max_num:
+        return False
     record = set()
     for r in s.route_list:
         flag, _ = _chk_route_list(r.node_list, data)
@@ -78,7 +80,7 @@ def check_route_capacity(nl: List[int], data) -> bool:
         return True
     capacity = data.vehicle.capacity
     load = 0.0
-    for node in nl:
+    for node in nl[1:-1]:
         load += data.node[node].delivery
     if load > capacity:
         return False
@@ -106,6 +108,10 @@ def get_route_arrival_times_and_violations(nl: List[int], data) -> Tuple[List[fl
         if node != data.DC:
             if time_val > data.node[node].end:
                 violations.append(node)
+        elif time_val > data.node[node].end and length > 2:
+            # A depot deadline has no movable depot node.  Reinsert the final
+            # customer instead; it is the direct source of the late return.
+            violations.append(nl[-2])
         time_val = max(time_val, data.node[node].start) + data.node[node].s_time
         pre_node = node
     return arrival_times, violations
@@ -138,7 +144,7 @@ def _intra_route_2_opt(nl: List[int], data) -> List[int]:
 def _insert_customer_best_position(s: Solution, customer: int, data) -> None:
     best_r_idx = -1
     best_p_idx = -1
-    best_cost = float('inf')
+    best_delta = float('inf')
     
     for r_idx in range(len(s.route_list)):
         route = s.route_list[r_idx]
@@ -146,16 +152,19 @@ def _insert_customer_best_position(s: Solution, customer: int, data) -> None:
             candidate_nl = route.node_list[:p_idx] + [customer] + route.node_list[p_idx:]
             flag, cost = _chk_route_list(candidate_nl, data)
             if flag:
-                if cost < best_cost:
-                    best_cost = cost
+                delta = cost - route.cal_cost(data)
+                if delta < best_delta:
+                    best_delta = delta
                     best_r_idx = r_idx
                     best_p_idx = p_idx
                     
     if best_r_idx != -1:
         s.route_list[best_r_idx].node_list.insert(best_p_idx, customer)
         s.route_list[best_r_idx].update(data)
-    else:
-        s.append(_make_route([customer], data))
+    elif s.len() < data.vehicle.max_num:
+        flag, _ = _chk_route_list([data.DC, customer, data.DC], data)
+        if flag:
+            s.append(_make_route([customer], data))
 
 
 def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
@@ -164,13 +173,18 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
     s.update(data)
     s.cal_cost(data)
     
+    def score(solution: Solution) -> float:
+        if getattr(data, "paper_flags", False):
+            return sum(route.self.dist for route in solution.route_list)
+        return solution.cost
+
     s_best = s.clone()
-    best_cost = s_best.cost
+    best_cost = score(s_best)
     
-    t0 = getattr(data, "sa_t0", 100.0)
-    alpha = getattr(data, "sa_alpha", 0.95)
-    tmin = getattr(data, "sa_tmin", 0.1)
-    itermax = getattr(data, "sa_itermax", 100)
+    t0 = data.sa_t0
+    alpha = data.sa_alpha
+    tmin = data.sa_tmin
+    itermax = data.sa_itermax
     
     t = t0
     while t > tmin:
@@ -206,16 +220,20 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
                     
                 flag, r_cost = _chk_route_list(nl, data)
                 if flag:
-                    old_r_cost = route.cal_cost(data)
-                    new_cost = s.cost - old_r_cost + r_cost
-                    delta = new_cost - s.cost
+                    before = score(s)
+                    candidate = s.clone()
+                    candidate.route_list[r_idx].node_list = nl
+                    candidate.update(data)
+                    candidate.cal_cost(data)
+                    new_cost = score(candidate)
+                    delta = new_cost - before
                     
-                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(s.cost))):
+                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(before))):
                         route.node_list = nl
                         route.update(data)
                         s.cal_cost(data)
-                        if s.cost < best_cost:
-                            best_cost = s.cost
+                        if score(s) < best_cost:
+                            best_cost = score(s)
                             s_best = s.clone()
                             
             else:
@@ -248,18 +266,22 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
                 flag1, r_cost1 = _chk_route_list(nl1, data)
                 flag2, r_cost2 = _chk_route_list(nl2, data)
                 if flag1 and flag2:
-                    old_r_cost1 = route1.cal_cost(data)
-                    old_r_cost2 = route2.cal_cost(data)
-                    new_cost = s.cost - (old_r_cost1 + old_r_cost2) + (r_cost1 + r_cost2)
-                    delta = new_cost - s.cost
+                    before = score(s)
+                    candidate = s.clone()
+                    candidate.route_list[r_idx1].node_list = nl1
+                    candidate.route_list[r_idx2].node_list = nl2
+                    candidate.update(data)
+                    candidate.cal_cost(data)
+                    new_cost = score(candidate)
+                    delta = new_cost - before
                     
-                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(s.cost))):
+                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(before))):
                         route1.node_list = nl1
                         route2.node_list = nl2
                         s.update(data)
                         s.cal_cost(data)
-                        if s.cost < best_cost:
-                            best_cost = s.cost
+                        if score(s) < best_cost:
+                            best_cost = score(s)
                             s_best = s.clone()
                             
         t = alpha * t
@@ -274,47 +296,21 @@ def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Rand
     s_prime = s.clone()
 
     # --- Step 1: Repair duplicate and missing customers ---
-    # 1. Identify customers visited more than once
-    customer_occurrences = {}
-    for r_idx, route in enumerate(s_prime.route_list):
-        for p_idx, node in enumerate(route.node_list):
-            if _is_customer(node, data):
-                if node not in customer_occurrences:
-                    customer_occurrences[node] = []
-                customer_occurrences[node].append((r_idx, p_idx))
-
-    duplicated_customers = [c for c, occs in customer_occurrences.items() if len(occs) > 1]
-    
-    for c in duplicated_customers:
-        occs = customer_occurrences[c]
-        best_occ = None
-        best_occ_cost = float('inf')
-        
-        for occ_idx, keep_occ in enumerate(occs):
-            candidate_s = s_prime.clone()
-            for other_idx, other_occ in enumerate(occs):
-                if other_idx == occ_idx:
-                    continue
-                r_i, p_i = other_occ
-                candidate_s.route_list[r_i].node_list[p_i] = -1
-                
-            for route in candidate_s.route_list:
-                route.node_list = [n for n in route.node_list if n != -1]
-            candidate_s.update(data)
-            candidate_s.cal_cost(data)
-            
-            if candidate_s.cost < best_occ_cost:
-                best_occ_cost = candidate_s.cost
-                best_occ = keep_occ
-                
-        for other_idx, other_occ in enumerate(occs):
-            if other_occ == best_occ:
-                continue
-            r_i, p_i = other_occ
-            s_prime.route_list[r_i].node_list[p_i] = -1
-            
-        for route in s_prime.route_list:
-            route.node_list = [n for n in route.node_list if n != -1]
+    # Rebuild each route in a single pass.  The former occurrence-index list
+    # became stale after the first deletion and could remove a depot or crash.
+    seen = set()
+    for route in s_prime.route_list:
+        kept = []
+        for node in route.node_list:
+            if not _is_customer(node, data) or node not in seen:
+                kept.append(node)
+                if _is_customer(node, data):
+                    seen.add(node)
+        route.node_list = kept
+        if not route.node_list or route.node_list[0] != data.DC:
+            route.node_list.insert(0, data.DC)
+        if route.node_list[-1] != data.DC:
+            route.node_list.append(data.DC)
 
     visited_customers = set()
     for route in s_prime.route_list:
@@ -355,7 +351,7 @@ def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Rand
                     candidate_nl = other_route.node_list[:p_idx] + [c] + other_route.node_list[p_idx:]
                     if check_route_capacity(candidate_nl, data):
                         flag, cost = _chk_route_list(candidate_nl, data)
-                        if cost < best_other_cost:
+                        if flag and cost < best_other_cost:
                             best_other_cost = cost
                             best_other_r_idx = other_r_idx
                             best_other_p_idx = p_idx
@@ -365,6 +361,8 @@ def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Rand
                 s_prime.route_list[best_other_r_idx].node_list.insert(best_other_p_idx, c)
                 s_prime.route_list[best_other_r_idx].update(data)
             else:
+                if s_prime.len() >= data.vehicle.max_num:
+                    return s
                 s_prime.append(_make_route([c], data))
 
     s_prime.update(data)
@@ -404,6 +402,8 @@ def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Rand
                 s_prime.route_list[best_other_r_idx].node_list.insert(best_other_p_idx, c)
                 s_prime.route_list[best_other_r_idx].update(data)
             else:
+                if s_prime.len() >= data.vehicle.max_num:
+                    return s
                 s_prime.append(_make_route([c], data))
 
     s_prime.update(data)
@@ -431,6 +431,7 @@ def _init_single_solution_worker(task):
     print(f"[Worker {index}] Starting initialization", file=sys.stderr)
     sys.stderr.flush()
     rng = random.Random(seed)
+    previous_rng = data.rng
     data.rng = rng
     data.init = init_mode
     data.ksize = data.k_init
@@ -446,17 +447,25 @@ def _init_single_solution_worker(task):
 
     data.in_initialization = True
     s = Solution(data)
-    new_route_insertion(s, data)
-    s.cal_cost(data)
-    if init_mode == "sa":
-        s = _sa_initialization(s, data, rng)
-    data.in_initialization = False
+    try:
+        new_route_insertion(s, data)
+        s.cal_cost(data)
+        if not quick_check_feasibility(s, data):
+            feasible_or_repair(s, data, rng)
+        if not quick_check_feasibility(s, data):
+            raise ValueError("initialization did not produce a feasible solution")
+        if init_mode == "sa":
+            s = _sa_initialization(s, data, rng)
+        s.cal_cost(data)
+    finally:
+        data.in_initialization = False
+        data.rng = previous_rng
     print(f"[Worker {index}] Finished initialization", file=sys.stderr)
     sys.stderr.flush()
     return index, s
 
 
-def initialization(pop, pop_fit, pop_argrank, data, executor=None):
+def initialization(pop, pop_fit, pop_argrank, data, executor=None, run_seed=None):
     length = len(pop)
     for i in range(length):
         pop[i].clear(data)
@@ -465,7 +474,7 @@ def initialization(pop, pop_fit, pop_argrank, data, executor=None):
     tasks = []
     for i in range(length):
         lambda_gamma = data.latin[i] if data.init in {RCRS, "sa"} else None
-        seed = data.seed + 100000 + i
+        seed = (data.seed if run_seed is None else run_seed) + 100000 + i
         tasks.append((i, data.init, data, seed, lambda_gamma))
         
     if executor is None:
@@ -584,7 +593,7 @@ def _append_customer_to_best_position(s: Solution, node: int, data) -> bool:
 
     # First result is starting a new route
     new_route_flag, new_route_cost = results[0]
-    if new_route_flag:
+    if new_route_flag and s.len() < data.vehicle.max_num:
         best_delta = new_route_cost
 
     for (r_index, pos), (flag, cost) in zip(route_meta[1:], results[1:]):
@@ -620,8 +629,7 @@ def _insert_customers(
         rng.shuffle(pending)
     for node in pending:
         if not _append_customer_to_best_position(s, node, data):
-            print("Error: could not repair customer %d into any feasible route" % node)
-            raise SystemExit(-1)
+            raise ValueError("could not repair customer %d into a feasible fleet" % node)
     s.update(data)
     s.cal_cost(data)
 
@@ -629,6 +637,8 @@ def _insert_customers(
 def feasible_or_repair(
     s: Solution, data, rng: Optional[random.Random] = None, shuffle_pending: bool = False
 ) -> Solution:
+    if quick_check_feasibility(s, data):
+        return s
     if getattr(data, "paper_flags", False):
         return feasible_or_repair_algorithm_10(s, data, rng)
     clean = Solution(data)
@@ -732,9 +742,13 @@ def feasible_or_repair(
 
     if shuffle_pending and rng is not None:
         rng.shuffle(pending)
-    _insert_customers(clean, pending, data, rng if shuffle_pending else None)
+    try:
+        _insert_customers(clean, pending, data, rng if shuffle_pending else None)
+    except ValueError:
+        return s
     clean.cal_cost(data)
-    s.copy_from(clean)
+    if quick_check_feasibility(clean, data):
+        s.copy_from(clean)
     return s
 
 
@@ -831,19 +845,24 @@ def _relocate_customer(s: Solution, data, rng: random.Random) -> bool:
     positions = _customer_positions(s, data)
     if len(positions) == 0:
         return False
+    if getattr(data, "paper_flags", False) and s.len() < 2:
+        return False
     r_index, pos = rng.choice(positions)
     source_route = s.get(r_index)
     node = source_route.node_list.pop(pos)
     source_route.update(data)
     s.update(data)
 
-    if s.len() == 0 or rng.random() < 0.15:
+    if s.len() == 0 or (not getattr(data, "paper_flags", False) and rng.random() < 0.15):
         route = Route(data)
         route.node_list.insert(1, node)
         route.update(data)
         s.append(route)
     else:
-        target_index = rng.randrange(s.len())
+        candidates = list(range(s.len()))
+        if getattr(data, "paper_flags", False) and r_index in candidates:
+            candidates.remove(r_index)
+        target_index = rng.choice(candidates)
         target_route = s.get(target_index)
         target_pos = rng.randrange(1, len(target_route.node_list))
         target_route.node_list.insert(target_pos, node)
@@ -854,11 +873,14 @@ def _relocate_customer(s: Solution, data, rng: random.Random) -> bool:
 
 
 def _light_mutation(s: Solution, data, rng: random.Random) -> None:
+    backup = s.clone()
     if rng.random() < 0.5:
         _swap_two_customers(s, data, rng)
     else:
         _relocate_customer(s, data, rng)
     feasible_or_repair(s, data, rng)
+    if not quick_check_feasibility(s, data):
+        s.copy_from(backup)
 
 
 def _inject_elite_routes(
@@ -975,25 +997,86 @@ def _li_lim_random_search(current: Solution, data, rng: random.Random) -> Soluti
     return _build_solution_from_sequence(sequence, data)
 
 
+def _relink_route(route: Route, guide: Route, amount: float, reverse: bool, data) -> None:
+    """Discrete WOA movement: move the common customer order toward the guide."""
+    positions = [i for i, node in enumerate(route.node_list) if _is_customer(node, data)]
+    guide_order = [node for node in guide.node_list if _is_customer(node, data)]
+    common = [route.node_list[i] for i in positions if route.node_list[i] in set(guide_order)]
+    if len(common) < 2:
+        return
+    desired = [node for node in guide_order if node in set(common)]
+    if reverse:
+        desired.reverse()
+    moves = max(1, min(len(common) - 1, int(math.ceil(len(common) * amount))))
+    for index in range(moves):
+        wanted = desired[index]
+        current_index = next(i for i, pos in enumerate(positions) if route.node_list[pos] == wanted)
+        route.node_list[positions[index]], route.node_list[positions[current_index]] = (
+            route.node_list[positions[current_index]], route.node_list[positions[index]],
+        )
+
+
+def _random_intra_route_operation(s: Solution, data, rng: random.Random) -> bool:
+    choices = [route for route in s.route_list if len(_route_customers(route, data)) >= 2]
+    if not choices:
+        return False
+    route = rng.choice(choices)
+    customer_positions = list(range(1, len(route.node_list) - 1))
+    first, second = sorted(rng.sample(customer_positions, 2))
+    operation = rng.randrange(3)
+    if operation == 0:
+        route.node_list[first], route.node_list[second] = route.node_list[second], route.node_list[first]
+    elif operation == 1:
+        node = route.node_list.pop(first)
+        route.node_list.insert(second, node)
+    else:
+        route.node_list[first:second + 1] = reversed(route.node_list[first:second + 1])
+    route.update(data)
+    s.update(data)
+    return True
+
+
 def _woa_intensification(
     current: Solution, best: Solution, a: float, data, rng: random.Random
 ) -> Solution:
-    r1 = rng.random()
-    r2 = rng.random()
-    a_vector = 2.0 * a * r1 - a
-    c_vector = 2.0 * r2
-
-    if abs(a_vector) < 1.0:
+    if not getattr(data, "paper_flags", False):
+        r1 = rng.random()
+        c_value = 2.0 * rng.random()
         child = current.clone()
-        if rng.random() < 0.5:
-            _inject_elite_routes(child, best, data, rng, c_vector)
+        if abs(2.0 * a * r1 - a) < 1.0:
+            if rng.random() < 0.5:
+                _inject_elite_routes(child, best, data, rng, c_value)
+            else:
+                _inject_elite_segments(child, best, data, rng)
         else:
-            _inject_elite_segments(child, best, data, rng)
+            child = _li_lim_random_search(current, data, rng)
         feasible_or_repair(child, data, rng)
         return child
 
-    child = _li_lim_random_search(current, data, rng)
-    feasible_or_repair(child, data, rng)
+    child = current.clone()
+    limit = min(child.len(), best.len())
+    for route_index in range(limit):
+        a_value = rng.uniform(-a, a)
+        c_value = rng.uniform(0.0, 2.0)
+        probability = rng.random()
+        backup = child.clone()
+        if probability < 0.5 and abs(a_value) < 1.0:
+            _relink_route(child.get(route_index), best.get(route_index),
+                          max(0.0, 1.0 - abs(a_value)) * c_value / 2.0,
+                          a_value < 0.0, data)
+        elif probability < 0.5:
+            if rng.random() < 0.5:
+                _random_intra_route_operation(child, data, rng)
+            else:
+                _light_mutation(child, data, rng)
+        else:
+            l_value = c_value - 1.0
+            spiral = min(1.0, abs(math.exp(l_value) * math.cos(2.0 * math.pi * l_value)))
+            _relink_route(child.get(route_index), best.get(route_index), spiral, l_value < 0.0, data)
+        child.update(data)
+        child.cal_cost(data)
+        if not quick_check_feasibility(child, data):
+            child = backup
     return child
 
 
@@ -1017,24 +1100,28 @@ def _sa_accept(
 def _update_agent_worker(task: AgentUpdateTask) -> Tuple[int, Solution, float, bool]:
     data = task.data
     rng = random.Random(task.seed)
+    previous_rng = data.rng
     data.rng = rng
+    try:
+        if rng.random() < task.p_hybrid:
+            new_solution = _guided_route_crossover(task.best, task.peer, task.current, data, rng)
+            if rng.random() < data.sho_mutation_prob:
+                _light_mutation(new_solution, data, rng)
+            feasible_or_repair(new_solution, data, rng)
+        else:
+            new_solution = _woa_intensification(task.current, task.best, task.a, data, rng)
 
-    if rng.random() < task.p_hybrid:
-        new_solution = _guided_route_crossover(task.best, task.peer, task.current, data, rng)
-        if rng.random() < data.sho_mutation_prob:
-            _light_mutation(new_solution, data, rng)
-        feasible_or_repair(new_solution, data, rng)
-    else:
-        new_solution = _woa_intensification(task.current, task.best, task.a, data, rng)
-
-    new_solution.cal_cost(data)
-    accepted = _sa_accept(
-        new_solution, task.current, task.current_fit, task.iteration, task.max_iter, rng
-    )
-    if accepted:
-        return task.index, new_solution, new_solution.cost, True
-
-    return task.index, task.current, task.current_fit, False
+        if not quick_check_feasibility(new_solution, data):
+            return task.index, task.current, task.current_fit, False
+        new_solution.cal_cost(data)
+        accepted = _sa_accept(
+            new_solution, task.current, task.current_fit, task.iteration, task.max_iter, rng
+        )
+        if accepted:
+            return task.index, new_solution, new_solution.cost, True
+        return task.index, task.current, task.current_fit, False
+    finally:
+        data.rng = previous_rng
 
 
 def _tournament_peer_index(pop_fit: List[float], current_index: int, data, k: int = 3) -> int:
@@ -1075,25 +1162,96 @@ def _install_move_memory(data, small_opts: List[str]) -> None:
         data.mem["2exchange"] = [Move() for _ in range(max_num * max_num)]
 
 
+def _combined_local_search(s: Solution, data) -> None:
+    """Algorithm 8's ordered, first-improvement neighbourhood search."""
+    while True:
+        improved = False
+        baseline = s.cost
+
+        # 2-opt: reverse every non-trivial intra-route customer segment.
+        for r_index, route in enumerate(s.route_list):
+            for start in range(1, len(route.node_list) - 2):
+                for end in range(start + 1, len(route.node_list) - 1):
+                    candidate = s.clone()
+                    nodes = candidate.get(r_index).node_list
+                    nodes[start:end + 1] = reversed(nodes[start:end + 1])
+                    candidate.update(data)
+                    candidate.cal_cost(data)
+                    if quick_check_feasibility(candidate, data) and candidate.cost < baseline - PRECISION:
+                        s.copy_from(candidate)
+                        improved = True
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if improved:
+            continue
+
+        # Relocate one customer, including moves between two existing routes.
+        for source_index, source in enumerate(s.route_list):
+            for source_pos in range(1, len(source.node_list) - 1):
+                for target_index, target in enumerate(s.route_list):
+                    for target_pos in range(1, len(target.node_list)):
+                        if source_index == target_index and target_pos in (source_pos, source_pos + 1):
+                            continue
+                        candidate = s.clone()
+                        node = candidate.get(source_index).node_list.pop(source_pos)
+                        adjusted = target_pos
+                        if source_index == target_index and target_pos > source_pos:
+                            adjusted -= 1
+                        candidate.get(target_index).node_list.insert(adjusted, node)
+                        candidate.update(data)
+                        candidate.cal_cost(data)
+                        if quick_check_feasibility(candidate, data) and candidate.cost < baseline - PRECISION:
+                            s.copy_from(candidate)
+                            improved = True
+                            break
+                    if improved:
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if improved:
+            continue
+
+        # Swap exactly one customer from distinct routes.
+        for first_index in range(s.len()):
+            for second_index in range(first_index + 1, s.len()):
+                for first_pos in range(1, len(s.get(first_index).node_list) - 1):
+                    for second_pos in range(1, len(s.get(second_index).node_list) - 1):
+                        candidate = s.clone()
+                        first = candidate.get(first_index).node_list
+                        second = candidate.get(second_index).node_list
+                        first[first_pos], second[second_pos] = second[second_pos], first[first_pos]
+                        candidate.update(data)
+                        candidate.cal_cost(data)
+                        if quick_check_feasibility(candidate, data) and candidate.cost < baseline - PRECISION:
+                            s.copy_from(candidate)
+                            improved = True
+                            break
+                    if improved:
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if not improved:
+            return
+
+
 def _deep_local_search_best(s: Solution, data, executor=None) -> None:
     saved_small_opts = list(data.small_opts)
     saved_mem: Dict[str, List[Move]] = data.mem
     saved_escape = data.escape_local_optima
     saved_skip = data.skip_finding_lo
-    saved_vehicle_max_num = data.vehicle.max_num
 
     try:
         data.skip_finding_lo = False
         data.escape_local_optima = 0
-        data.vehicle.max_num = max(data.vehicle.max_num, s.len() + 2)
-
         if getattr(data, "paper_flags", False):
-            _install_move_memory(data, ["2opt"])
-            do_local_search(s, data, executor)
-            _install_move_memory(data, ["oropt_single"])
-            do_local_search(s, data, executor)
-            _install_move_memory(data, ["2exchange"])
-            do_local_search(s, data, executor)
+            _combined_local_search(s, data)
         else:
             _install_move_memory(data, ["2opt"])
             do_local_search(s, data, executor)
@@ -1108,7 +1266,6 @@ def _deep_local_search_best(s: Solution, data, executor=None) -> None:
         data.mem = saved_mem
         data.escape_local_optima = saved_escape
         data.skip_finding_lo = saved_skip
-        data.vehicle.max_num = saved_vehicle_max_num
 
 def _ruin_and_recreate(s: Solution, data, rng: random.Random) -> Solution:
     candidate = s.clone()
@@ -1121,12 +1278,17 @@ def _ruin_and_recreate(s: Solution, data, rng: random.Random) -> Solution:
     _remove_customers(candidate, removed, data)
     pending = list(removed)
     rng.shuffle(pending)
-    _insert_customers(candidate, pending, data, rng)
+    try:
+        _insert_customers(candidate, pending, data, rng)
+    except ValueError:
+        return s.clone()
     feasible_or_repair(candidate, data, rng, shuffle_pending=True)
     return candidate
 
 
 def _diversify(pop, pop_fit, pop_argrank, best_s, data) -> None:
+    if data.diversify_ratio == 0.0:
+        return
     argsort(pop_fit, pop_argrank, len(pop))
     elite_index = pop_argrank[0]
     pop[elite_index].copy_from(best_s)
@@ -1136,7 +1298,9 @@ def _diversify(pop, pop_fit, pop_argrank, best_s, data) -> None:
     if len(non_elite) == 0:
         return
     data.rng.shuffle(non_elite)
-    diversify_count = max(1, int(round(len(non_elite) * data.diversify_ratio)))
+    diversify_count = int(round(len(non_elite) * data.diversify_ratio))
+    if diversify_count == 0:
+        return
     for index in non_elite[:diversify_count]:
         candidate = _ruin_and_recreate(pop[index], data, data.rng)
         pop[index].copy_from(candidate)
@@ -1179,21 +1343,25 @@ def search_framework(data, best_s):
     try:
         while run <= data.runs:
             print("---------------------------------Run %d---------------------------" % run)
-            initialization(pop, pop_fit, pop_argrank, data, executor)
+            run_seed = data.seed + run - 1
+            data.rng.seed(run_seed)
+            run_best = Solution(data)
+            run_best.cost = float("inf")
+            initialization(pop, pop_fit, pop_argrank, data, executor, run_seed)
             used = int(time.perf_counter() - stime)
             print("already consumed %d sec" % used)
     
-            update_best_solution(pop[pop_argrank[0]], best_s, used, run, 0, data)
+            update_best_solution(pop[pop_argrank[0]], run_best, used, run, 0, data)
             output(pop, pop_fit, pop_argrank, data)
     
-            last_improvement_gen = 0
+            no_improve = 0
 
             for gen in range(1, data.max_iter + 1):
-                best_before_generation = best_s.cost
+                best_before_generation = run_best.cost
                 iteration_index = gen - 1
                 a, p_hybrid = _dynamic_parameters(iteration_index, data.max_iter)
                 p_mode = _mode_probability(p_hybrid, data)
-                best_snapshot = best_s.clone()
+                best_snapshot = run_best.clone()
                 tasks: List[AgentUpdateTask] = []
 
                 for index in range(data.p_size):
@@ -1224,25 +1392,29 @@ def search_framework(data, best_s):
 
                 argsort(pop_fit, pop_argrank, data.p_size)
                 used = int(time.perf_counter() - stime)
-                update_best_solution(pop[pop_argrank[0]], best_s, used, run, gen, data)
+                update_best_solution(pop[pop_argrank[0]], run_best, used, run, gen, data)
 
-                if gen % data.local_search_interval == 0:
-                    print("Periodic deep local search on global best.")
-                    elite = best_s.clone()
+                local_search_due = (
+                    iteration_index % data.local_search_interval == 0
+                    if data.paper_flags else gen % data.local_search_interval == 0
+                )
+                if local_search_due:
+                    print("Periodic deep local search on run best.")
+                    elite = run_best.clone()
                     _deep_local_search_best(elite, data, executor)
-                    update_best_solution(elite, best_s, used, run, gen, data)
-                    _inject_global_best(pop, pop_fit, pop_argrank, best_s)
+                    update_best_solution(elite, run_best, used, run, gen, data)
+                    if not data.paper_flags:
+                        _inject_global_best(pop, pop_fit, pop_argrank, run_best)
 
-                if best_s.cost - best_before_generation < -PRECISION:
-                    last_improvement_gen = gen
+                if run_best.cost - best_before_generation < -PRECISION:
+                    no_improve = 0
+                else:
+                    no_improve += 1
 
-                if (
-                    gen % data.stagnation_interval == 0
-                    and gen - last_improvement_gen >= data.stagnation_interval
-                ):
+                if no_improve >= data.stagnation_interval:
                     print("Stagnation detected. Diversifying 40%% of non-elite population.")
-                    _diversify(pop, pop_fit, pop_argrank, best_s, data)
-                    last_improvement_gen = gen
+                    _diversify(pop, pop_fit, pop_argrank, run_best, data)
+                    no_improve = 0
 
                 used = int(time.perf_counter() - stime)
                 if gen % OUTPUT_PER_GENS == 0:
@@ -1255,7 +1427,7 @@ def search_framework(data, best_s):
                     output(pop, pop_fit, pop_argrank, data)
                     print(
                         "Gen %d done, no improvement for %d gens, already consumed %d sec"
-                        % (gen, gen - last_improvement_gen, used)
+                        % (gen, no_improve, used)
                     )
 
                 if data.tmax != -1 and used > int(data.tmax):
@@ -1264,9 +1436,8 @@ def search_framework(data, best_s):
 
             print("Run %d finishes" % run)
             output(pop, pop_fit, pop_argrank, data)
+            update_best_solution(run_best, best_s, used, run, gen if data.max_iter else 0, data)
             completed_runs += 1
-
-            data.rng.seed(data.seed + run)
             if time_exhausted:
                 break
             run += 1
@@ -1276,12 +1447,13 @@ def search_framework(data, best_s):
 
     print("------------Summary-----------")
     print("Total %d runs, total consumed %d sec" % (completed_runs, int(used)))
+    if not quick_check_feasibility(best_s, data) or not best_s.check(data):
+        raise RuntimeError("solver finished without a feasible best solution")
     best_s.output(data)
     print(
         "In run %d, gen %d, find this solution, at time %d."
         % (state.find_best_run, state.find_best_gen, int(state.find_best_time))
     )
     print("Time to surpass BKS: %d." % int(state.find_bks_time))
-    best_s.check(data)
     if hasattr(data.backend, "shutdown"):
         data.backend.shutdown()
