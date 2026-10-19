@@ -269,6 +269,7 @@ def main() -> None:
         else:
             print(f"[{idx:2d}/{len(allocations)}] Pushing {owner}/{slug} ({inst} s={seed} n={reps}) via {account}...", flush=True)
             env = get_kaggle_env(account)
+            res = subprocess.run([KAGGLE_EXE, "kernels", "push", "-p", str(job_dir)], env=env, capture_output=True, text=True)
             out_msg = (res.stdout + " " + res.stderr).lower()
             if res.returncode == 0 and ("successful" in out_msg or "kernel version" in out_msg):
                 print(f"   --> SUCCESS: {res.stdout.strip()}", flush=True)
