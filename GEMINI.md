@@ -80,3 +80,24 @@ The agent must ask the user explicitly before:
 - Submitting form actions, authentication tokens, API keys, or project-specific source code to third-party endpoints.
 - Accessing unknown, non-standard HTTP/HTTPS endpoints outside the whitelist.
 
+---
+
+## 5. Theoretical Rigor & Verification Before Conclusion Policy (QUY CHUẨN KIỂM CHỨNG LÝ THUYẾT VÀ BẢO CHỨNG KẾT LUẬN)
+
+Tất cả các Agent (bao gồm Main Agent và mọi Subagents) phải tuân thủ nghiêm ngặt nguyên tắc kiểm chứng lý thuyết trước khi đưa ra bất kỳ kết luận, dự đoán, hoặc số liệu nào:
+
+### 5.1. Cấm Tuyệt Đối Suy Đoán Cảm Tính (Zero Unverified Assertions)
+- **Không suy diễn chủ quan:** Mọi nhận định về độ khả thi, tính đúng đắn, chất lượng nghiệm, độ phức tạp thuật toán, hoặc tốc độ thực thi bắt buộc phải có chứng minh toán học, công thức tường minh, hoặc trích xuất số liệu thực nghiệm trực tiếp từ log đo đạc thực tế.
+- **Đối chiếu Cận Dưới & Định lý Toán học:** Trước khi kết luận một nghiệm là tối ưu hoặc đánh giá một nghiên cứu, Agent phải đối chiếu với các cận dưới lý thuyết (Theoretical Lower Bounds, Clique Incompatibility, BKS thế giới, Bất đẳng thức tam giác Euclid). Không bao giờ thừa nhận các số liệu phá vỡ quy luật vật lý/toán học mà không chỉ rõ bản chất vi phạm.
+
+### 5.2. Nguyên Tắc Tính Toán Dự Toán Tài Nguyên & Thời Gian (Rigorous Time & Resource Estimation)
+Khi dự toán thời gian hoàn thành cho bất kỳ quy trình tính toán, benchmark hay batch pipeline nào:
+1. **Bắt buộc dùng công thức toán học:**
+   $$\text{Thời gian tổng thể} = \frac{\sum_{i=1}^M (\text{Số runs}_i \times \text{Thời gian thực tế đo được}_i)}{\text{Số worker song song hiệu dụng}} \times \text{Hệ số overhead/timeout}$$
+2. **Không áp dụng quy luật tuyến tính cào bằng:** Phải phân tách rõ các nhóm bài toán (ví dụ: nhóm bài toán nhỏ/khung giờ hẹp vs. nhóm bài toán lớn/khung giờ rộng) dựa trên thời gian chạy thực tế đo được từ các lần chạy trước trong log.
+3. **Tuân thủ Giới hạn Nền tảng:** Phải tính đến các ngưỡng timeout vật lý của hạ tầng (ví dụ: ngưỡng 9 giờ của Kaggle, thời gian I/O, thời gian tải snapshot, số wave chia nhỏ). Tuyệt đối không đưa ra những con số phi thực tế khi chưa nhân với số đợt chạy thực tế.
+
+### 5.3. Thẩm Định Ràng Buộc Khả Thi Tuyệt Đối (Strict Feasibility Verification)
+- Không bao giờ công nhận một giải pháp là "hoàn thành" hay "khả thi" nếu chưa kiểm tra 100% các ràng buộc kỹ thuật của bài toán (Capacity động từng chặng, Time Windows cứng, Depot bounds, Customer uniqueness).
+- Khi thuật toán sinh ra nghiệm vi phạm ràng buộc (infeasible), phải báo cáo rõ ràng trạng thái vi phạm và ghi chú cụ thể nguyên nhân vi phạm, không đánh tráo khái niệm giữa nghiệm thô và nghiệm hợp lệ.
+
