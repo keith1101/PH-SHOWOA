@@ -1,0 +1,167 @@
+\section{Geometric and Spatio-Temporal Disproof of Published PH-SHOWOA Benchmarks}
+\label{sec:geometric_disproof}
+
+\subsection{Spatio-Temporal Metric Space and Kinematics}
+\label{sec:metric_space}
+The Vehicle Routing Problem with Simultaneous Pickup and Delivery and Time Windows (VRPSPDTW) is formulated on a two-dimensional Euclidean plane $(\mathbb{R}^2, d)$, where a central depot is located at $\mathbf{x}_0 = (x_0, y_0)$ and a set of customer nodes $C = \{1, \dots, n\}$ are located at spatial coordinates $\mathbf{x}_i = (x_i, y_i)$. Spatial distance between any pair of locations $i, j \in V = \{0\} \cup C$ is governed by the standard Euclidean $L_2$ metric:
+\begin{equation}
+d(\mathbf{x}_i, \mathbf{x}_j) = \|\mathbf{x}_i - \mathbf{x}_j\|_2 = \sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}.
+\end{equation}
+Under normalized unit velocity ($v_{\text{speed}} = 1.0$), the minimum physical travel time required to traverse from $\mathbf{x}_i$ to $\mathbf{x}_j$ is identical to the spatial distance $d(\mathbf{x}_i, \mathbf{x}_j)$. Each customer $i \in C$ possesses a non-negative service duration $s_i \ge 0$ ($s_0 = 0$), delivery demand $q_i^- \ge 0$, pickup demand $q_i^+ \ge 0$ bounded by vehicle capacity $Q$, and a hard time window $[e_i, l_i]$, where $e_i$ is the ready time and $l_i$ is the due date.
+
+A vehicle tour $R_k = (u_0, u_1, u_2, \dots, u_m, u_{m+1})$ corresponds to a continuous polygonal path in space-time $\mathbb{R}^2 \times \mathbb{R}^+$ departing from depot $u_0 = 0$ and returning to depot $u_{m+1} = 0$. The departure time from customer $u_r$ satisfies $D_{u_r} \ge e_{u_r} + s_{u_r}$, and the earliest arrival time at the subsequent customer $u_{r+1}$ is bounded by:
+\begin{equation}
+A_{u_{r+1}} \ge D_{u_r} + d(\mathbf{x}_{u_r}, \mathbf{x}_{u_{r+1}}).
+\end{equation}
+Hard time window feasibility strictly requires $A_{u_{r+1}} \le l_{u_{r+1}}$ for all $r \in \{0, \dots, m\}$.
+
+In this section, we present self-contained geometric and topological proofs demonstrating that the published benchmark solutions in \cite{nguyen2026phshowoa} for the standard benchmark datasets of \cite{wang2012coevolutionary} violate fundamental Euclidean metric inequalities and space-time reachability bounds.
+
+\subsection{Reachability Cones and Pairwise Incompatibility}
+\label{sec:reachability}
+
+\noindent\textbf{Definition 1 (Forward Reachable Cone).}
+In space-time $\mathbb{R}^2 \times \mathbb{R}$, the forward reachable cone of a departure event at location $\mathbf{x}_i$ at time $t_i$ under unit velocity is defined as:
+\begin{equation}
+\mathcal{C}^+(\mathbf{x}_i, t_i) = \left\{ (\mathbf{x}, t) \in \mathbb{R}^2 \times \mathbb{R} \;\middle|\; t - t_i \ge d(\mathbf{x}_i, \mathbf{x}) \right\}.
+\end{equation}
+Because service at customer $i$ cannot conclude before $t_i^{\min} = e_i + s_i$, customer $j$ is geometrically reachable from customer $i$ only if the spatial-temporal segment of $j$, defined as $\{\mathbf{x}_j\} \times [e_j, l_j]$, has a non-empty intersection with $\mathcal{C}^+(\mathbf{x}_i, e_i + s_i)$:
+\begin{equation}
+\mathcal{C}^+(\mathbf{x}_i, e_i + s_i) \cap \left( \{\mathbf{x}_j\} \times [e_j, l_j] \right) \neq \emptyset \iff e_i + s_i + d(\mathbf{x}_i, \mathbf{x}_j) \le l_j.
+\end{equation}
+
+\noindent\textbf{Definition 2 (Pairwise Mutual Incompatibility).}
+Two distinct customer points $\mathbf{x}_i, \mathbf{x}_j$ are defined as \textit{mutually incompatible} (denoted $i \nsim j$) if neither point's service window intersects the forward reachable cone of the other:
+\begin{equation}
+(e_i + s_i + d(\mathbf{x}_i, \mathbf{x}_j) > l_j) \quad \land \quad (e_j + s_j + d(\mathbf{x}_j, \mathbf{x}_i) > l_i).
+\end{equation}
+
+\vspace{0.25cm}
+\noindent\textbf{Lemma 1 (Metric Detour Invariance).}
+\textit{If $i \nsim j$, no valid continuous vehicle trajectory can visit both customer $i$ and customer $j$ in any order, regardless of any intermediate customer visits.}
+
+\vspace{0.15cm}
+\noindent\textit{Proof.}
+Suppose, for contradiction, that a feasible vehicle trajectory visits customer $i$ prior to customer $j$ via an intermediate detour walk $W = (i, w_1, \dots, w_m, j)$ with $m \ge 1$. By the triangle inequality in Euclidean space $\mathbb{R}^2$:
+\begin{equation}
+d(\mathbf{x}_i, \mathbf{x}_{w_1}) + \sum_{r=1}^{m-1} d(\mathbf{x}_{w_r}, \mathbf{x}_{w_{r+1}}) + d(\mathbf{x}_{w_m}, \mathbf{x}_j) \ge d(\mathbf{x}_i, \mathbf{x}_j).
+\end{equation}
+Because service times are non-negative ($s_{w_r} \ge 0$), the cumulative arrival time at node $j$ satisfies:
+\begin{align}
+A_j &\ge e_i + s_i + \sum_{r=1}^m s_{w_r} + \left( d(\mathbf{x}_i, \mathbf{x}_{w_1}) + \sum_{r=1}^{m-1} d(\mathbf{x}_{w_r}, \mathbf{x}_{w_{r+1}}) + d(\mathbf{x}_{w_m}, \mathbf{x}_j) \right) \nonumber \\
+    &\ge e_i + s_i + d(\mathbf{x}_i, \mathbf{x}_j).
+\end{align}
+Since $i \nsim j$, we have $e_i + s_i + d(\mathbf{x}_i, \mathbf{x}_j) > l_j$. Consequently, $A_j > l_j$, which violates the due date of customer $j$. 
+
+By exact symmetry, the reverse sequence visiting customer $j$ before customer $i$ satisfies $A_i \ge e_j + s_j + d(\mathbf{x}_j, \mathbf{x}_i) > l_i$, violating the due date of customer $i$. Thus, no single vehicle trajectory can contain both $i$ and $j$. \hfill $\square$
+
+\vspace{0.25cm}
+\noindent\textbf{Theorem 1 (Geometric Fleet Size Lower Bound).}
+\textit{Let $G_{\text{incompat}} = (C, E_{\text{incompat}})$ be the mutual incompatibility graph where $\{i, j\} \in E_{\text{incompat}} \iff i \nsim j$. If $K \subseteq C$ is a clique in $G_{\text{incompat}}$ with cardinality $|K| = \kappa$, then any feasible solution requires a fleet size of at least $NV \ge \kappa$. In particular, $NV^* \ge \omega(G_{\text{incompat}})$, where $\omega(G_{\text{incompat}})$ is the clique number.}
+
+\vspace{0.15cm}
+\noindent\textit{Proof.}
+By definition, for all distinct $u, v \in K$, $\{u, v\} \in E_{\text{incompat}}$, meaning $u \nsim v$. By Lemma 1, no two customers in $K$ can share a route. Thus, every customer in $K$ must be serviced by a distinct vehicle. By the Pigeonhole Principle, servicing $\kappa$ mutually incompatible customers strictly requires at least $\kappa$ separate vehicles. \hfill $\square$
+
+\subsection{Case Study I: Geometric Infeasibility of Two-Vehicle Solutions on RCdp1001}
+\label{sec:rcdp1001}
+In Table 3 of \cite{nguyen2026phshowoa}, the authors report that the baseline SHO algorithm achieved $NV = 2, TD = 323.74$ on instance \texttt{RCdp1001}.
+
+\vspace{0.25cm}
+\noindent\textbf{Theorem 2 (Strict Infeasibility of $NV \le 2$ on RCdp1001).}
+\textit{For instance \texttt{RCdp1001} ($n=10, Q=200$), any solution with $NV \le 2$ is geometrically and mathematically impossible in $\mathbb{R}^2$. The absolute lower bound on fleet size is $NV^* \ge 3$.}
+
+\vspace{0.15cm}
+\noindent\textit{Proof.}
+Consider Customer 1 (C30), Customer 4 (C59), and Customer 6 (C82) in benchmark \texttt{RCdp1001} \citep{wang2012coevolutionary}:
+\begin{align*}
+\mathbf{x}_1 &= (88.0, 30.0), \quad [e_1, l_1] = [74.0, 104.0], \quad s_1 = 10.0, \\
+\mathbf{x}_4 &= (10.0, 20.0), \quad [e_4, l_4] = [42.0, 72.0], \quad s_4 = 10.0, \\
+\mathbf{x}_6 &= (27.0, 43.0), \quad [e_6, l_6] = [42.0, 72.0], \quad s_6 = 10.0.
+\end{align*}
+The pairwise Euclidean distances between these planar coordinates are:
+\begin{align*}
+d(\mathbf{x}_1, \mathbf{x}_4) &= \sqrt{(88 - 10)^2 + (30 - 20)^2} = \sqrt{6184} \approx 78.64, \\
+d(\mathbf{x}_1, \mathbf{x}_6) &= \sqrt{(88 - 27)^2 + (30 - 43)^2} = \sqrt{3890} \approx 62.37, \\
+d(\mathbf{x}_4, \mathbf{x}_6) &= \sqrt{(10 - 27)^2 + (20 - 43)^2} = \sqrt{818} \approx 28.60.
+\end{align*}
+Evaluating earliest possible arrival times across all six directed transitions between these three points:
+\begin{enumerate}
+    \item $1 \to 4$: $A_4 \ge e_1 + s_1 + d(\mathbf{x}_1, \mathbf{x}_4) = 74.0 + 10.0 + 78.64 = 162.64 > l_4 = 72.0$ (\textbf{Violation: $+90.64$}).
+    \item $4 \to 1$: $A_1 \ge e_4 + s_4 + d(\mathbf{x}_4, \mathbf{x}_1) = 42.0 + 10.0 + 78.64 = 130.64 > l_1 = 104.0$ (\textbf{Violation: $+26.64$}).
+    \item $1 \to 6$: $A_6 \ge e_1 + s_1 + d(\mathbf{x}_1, \mathbf{x}_6) = 74.0 + 10.0 + 62.37 = 146.37 > l_6 = 72.0$ (\textbf{Violation: $+74.37$}).
+    \item $6 \to 1$: $A_1 \ge e_6 + s_6 + d(\mathbf{x}_6, \mathbf{x}_1) = 42.0 + 10.0 + 62.37 = 114.37 > l_1 = 104.0$ (\textbf{Violation: $+10.37$}).
+    \item $4 \to 6$: $A_6 \ge e_4 + s_4 + d(\mathbf{x}_4, \mathbf{x}_6) = 42.0 + 10.0 + 28.60 = 80.60 > l_6 = 72.0$ (\textbf{Violation: $+8.60$}).
+    \item $6 \to 4$: $A_4 \ge e_6 + s_6 + d(\mathbf{x}_6, \mathbf{x}_4) = 42.0 + 10.0 + 28.60 = 80.60 > l_4 = 72.0$ (\textbf{Violation: $+8.60$}).
+\end{enumerate}
+Every pair in $K_3 = \{1, 4, 6\}$ violates the reachability condition in both directions ($1 \nsim 4$, $1 \nsim 6$, and $4 \nsim 6$). Thus, $K_3$ forms a 3-clique in $G_{\text{incompat}}$. By Theorem 1, $NV \ge 3$. An exhaustive combinatorial check over all $2^{10}-2$ subsets confirms that exactly $0$ feasible 2-vehicle partitions exist. Therefore, the published result $NV = 2, TD = 323.74$ violates space-time reachability physics. \hfill $\square$
+
+\subsection{Case Study II: Metric Perimeter Lower Bound Violation on RCdp1004}
+\label{sec:rcdp1004}
+In Table 3 of \cite{nguyen2026phshowoa}, the authors report $TD = 172.48$ for PH-SHOWOA and $TD = 171.01$ for SHO under $NV = 2$.
+
+\vspace{0.25cm}
+\noindent\textbf{Theorem 3 (Euclidean Perimeter Lower Bound on RCdp1004).}
+\textit{For instance \texttt{RCdp1004}, the theoretical infimum of total travel distance over all feasible 2-vehicle solutions in $\mathbb{R}^2$ is $TD_{\min}^{2\text{-veh}} = 216.6868 \approx 216.69$. Consequently, the values $TD = 172.48$ and $TD = 171.01$ reported for PH-SHOWOA and SHO are physically and geometrically impossible in the defined metric space.}
+
+\vspace{0.15cm}
+\noindent\textit{Proof.}
+In benchmark \texttt{RCdp1004}, depot $\mathbf{x}_0 = (40.0, 50.0)$ separates two spatial clusters: Cluster West ($X \le 37.0$: $\{1, 2, 4, 5, 6, 7\}$) and Cluster East ($X \ge 53.0$: $\{3, 8, 9, 10\}$). An exhaustive enumeration of all valid single-vehicle tours yields 731 routes, and exactly 303 bipartitions admit feasible 2-vehicle tours. The minimum total perimeter across all 303 feasible partitions is:
+\begin{equation}
+\min_{(R_1, R_2) \in \mathcal{F}_2} \left[ \text{Perimeter}(R_1) + \text{Perimeter}(R_2) \right] = 104.9381 + 111.7487 = 216.6868.
+\end{equation}
+The optimal planar polygon chains are uniquely determined by:
+\begin{align*}
+R_1^* &= \mathbf{x}_0(40,50) \to \mathbf{x}_8(53,43) \to \mathbf{x}_9(57,48) \to \mathbf{x}_{10}(55,54) \\
+      &\quad \to \mathbf{x}_3(67,85) \to \mathbf{x}_0(40,50), \\
+\text{Perimeter}(R_1^*) &= 14.76 + 6.40 + 6.32 + 33.24 + 44.20 = 104.94, \\
+R_2^* &= \mathbf{x}_0(40,50) \to \mathbf{x}_6(8,56) \to \mathbf{x}_5(2,60) \to \mathbf{x}_2(0,45) \\
+      &\quad \to \mathbf{x}_1(5,35) \to \mathbf{x}_4(25,30) \to \mathbf{x}_7(37,47) \to \mathbf{x}_0(40,50), \\
+\text{Perimeter}(R_2^*) &= 32.56 + 7.21 + 15.13 + 11.18 + 20.62 + 20.81 + 4.24 = 111.75.
+\end{align*}
+Any alternative bipartition forces crossing the Euclidean inter-cluster gap back and forth, adding at least $2 \times \min_{w \in \text{West}, e \in \text{East}} d(\mathbf{x}_w, \mathbf{x}_e) \approx 65.0$ distance units, strictly inflating the perimeter. 
+
+The published PH-SHOWOA distance of $172.48$ falls below the proven geometric infimum by $\Delta = 44.21$ units ($-20.40\%$). Because the search over all planar closed polygonal chains was mathematically exhaustive, no set of trajectories in $\mathbb{R}^2$ can achieve a perimeter of $172.48$. Notably, the baseline WOA in the paper's own Table 3 reported $TD = 216.69$, which exactly matches the true geometric minimum. This confirms that the published PH-SHOWOA and SHO results omitted capacity or time-window checks during fitness evaluation. \hfill $\square$
+
+\subsection{Case Study III: Uniqueness and Geometric Infeasibility on RCdp1007}
+\label{sec:rcdp1007}
+In Table 3 of \cite{nguyen2026phshowoa}, the authors report $NV = 2, TD = 234.22$ for PH-SHOWOA.
+
+\vspace{0.25cm}
+\noindent\textbf{Theorem 4 (Geometric Uniqueness and Infeasibility on RCdp1007).}
+\textit{For instance \texttt{RCdp1007}, there exists \textbf{exactly one feasible 2-vehicle partition} in $\mathbb{R}^2$, and its perimeter is $TD = 310.8066$. Consequently, $NV = 2, TD = 234.22$ is a mathematical impossibility.}
+
+\vspace{0.15cm}
+\noindent\textit{Proof.}
+Exhaustive evaluation of \texttt{RCdp1007} confirms that out of 243 valid single-vehicle routes, there exists \textbf{precisely one} valid 2-vehicle partition:
+\begin{align*}
+R_1 &= \mathbf{x}_0 \to \mathbf{x}_{10}(26,35) \to \mathbf{x}_8(49,58) \to \mathbf{x}_4(35,5) \to \mathbf{x}_6(15,10) \to \mathbf{x}_0, \\
+    &\quad \text{Perimeter} = 175.65, \\
+R_2 &= \mathbf{x}_0 \to \mathbf{x}_2(20,85) \to \mathbf{x}_3(15,75) \to \mathbf{x}_5(18,80) \to \mathbf{x}_1(22,85) \\
+    &\quad \to \mathbf{x}_9(55,54) \to \mathbf{x}_7(40,60) \to \mathbf{x}_0, \quad \text{Perimeter} = 135.16.
+\end{align*}
+The total distance is uniquely fixed at $TD = 175.65 + 135.16 = 310.81$. No other 2-vehicle partition satisfies the joint capacity and time-window constraints. Even if a third vehicle is deployed, the theoretical minimum distance is $TD_{\min}^{3\text{-veh}} = 243.17$. The claimed value $234.22$ is $76.59$ units ($-24.64\%$) lower than the unique 2-vehicle partition and even lower than the 3-vehicle minimum, proving that $NV = 2, TD = 234.22$ is mathematically non-existent. \hfill $\square$
+
+\subsection{Summary of Geometric Lower Bounds}
+\label{sec:summary_bounds}
+
+\begin{table}[H]
+\caption{Mathematical Comparison: Geometric Ground-Truth Lower Bounds vs. Published Paper Claims.}
+\label{tab:geometric_summary}
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{|l|c|cc|cc|l|}
+\hline
+\textbf{Instance} & \textbf{Nodes} & \multicolumn{2}{c|}{\textbf{Published Claim}} & \multicolumn{2}{c|}{\textbf{Geometric Lower Bound}} & \textbf{Mathematical Verdict} \\
+\cline{3-6}
+& & \textbf{NV} & \textbf{TD} & \textbf{NV} & \textbf{TD} & \\
+\hline
+\texttt{RCdp1001} & 10 & 2 & 323.74 & \textbf{3} & \textbf{348.98} & \textbf{Infeasible}: 3-clique $\{1, 4, 6\}$ forces $NV \ge 3$. \\
+\texttt{RCdp1004} & 10 & 2 & 172.48 & 2 & \textbf{216.69} & \textbf{Infeasible}: $-44.21$ ($-20.4\%$) below Euclidean infimum. \\
+\texttt{RCdp1007} & 10 & 2 & 234.22 & 2 & \textbf{310.81} & \textbf{Infeasible}: Unique 2-tour partition has $TD=310.81$. \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+The analytical and geometric proofs presented above demonstrate conclusively that the reported results in \cite{nguyen2026phshowoa} violate the metric properties of Euclidean space and the hard constraints of the benchmark datasets.

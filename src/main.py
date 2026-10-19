@@ -51,6 +51,8 @@ def main(argv=None):
     parser.add_argument("--diversify_ratio", 1)
     parser.add_argument("--sho_mutation_prob", 1)
     parser.add_argument("--hybrid_mode", 1)
+    parser.add_argument("--sho")
+    parser.add_argument("--woa")
     parser.add_argument("--compute_backend", 1)
     parser.add_argument("--init", 1)
     parser.add_argument("--k_init", 1)

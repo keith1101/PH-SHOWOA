@@ -51,6 +51,7 @@ def build_data(tmp_dir, *args):
     parser.add_argument("--runs", 1)
     parser.add_argument("--max_iter", 1)
     parser.add_argument("--sa_itermax", 1)
+    parser.add_argument("--sho")
     parser.parse(["test", "--problem", str(instance), "--compute_backend", "cpu", *args])
     return Data(parser)
 
@@ -124,6 +125,23 @@ class PHShowoaRegressionTest(unittest.TestCase):
             data = build_data(
                 tmp_dir, "--paper_flags", "--pop_size", "1", "--runs", "1",
                 "--max_iter", "1", "--sa_itermax", "0",
+            )
+            data.parallel_workers = 1
+            best = Solution(data)
+            best.cost = float("inf")
+            search_framework(data, best)
+            self.assertTrue(quick_check_feasibility(best, data))
+
+    def test_sho_flag_configures_sho_hybrid_mode(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = build_data(tmp_dir, "--sho")
+            self.assertEqual("sho", data.hybrid_mode)
+
+    def test_sho_mode_smoke_run_returns_a_feasible_solution(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = build_data(
+                tmp_dir, "--sho", "--paper_flags", "--pop_size", "2", "--runs", "1",
+                "--max_iter", "2", "--sa_itermax", "0",
             )
             data.parallel_workers = 1
             best = Solution(data)

@@ -37,6 +37,7 @@ class AgentUpdateTask:
     max_iter: int
     seed: int
     data: object
+    h: float = 5.0
 
 
 def update_best_solution(s, best_s, used, run, gen, data):
@@ -167,39 +168,221 @@ def _insert_customer_best_position(s: Solution, customer: int, data) -> None:
             s.append(_make_route([customer], data))
 
 
+def _insert_ejected_customers_regret(s: Solution, customers: List[int], data) -> bool:
+    """Attempts to insert all ejected customers into existing routes of s using Regret-2.
+
+    NEVER creates a new route. Returns True if all customers are feasibly inserted,
+    False otherwise (leaving s unchanged).
+    """
+    if not customers:
+        return True
+    if s.len() == 0:
+        return False
+
+    working = s.clone()
+    unassigned = list(customers)
+
+    placed_any = True
+    while placed_any and unassigned:
+        placed_any = False
+        best_cand_node = -1
+        best_cand_r_idx = -1
+        best_cand_p_idx = -1
+        max_regret = -float('inf')
+        best_cost_for_cand = float('inf')
+
+        route_costs = [working.get(r_i).cal_cost(data) for r_i in range(working.len())]
+
+        for c in unassigned:
+            feas_insertions: List[Tuple[float, int, int]] = []
+            for r_idx in range(working.len()):
+                route = working.get(r_idx)
+                orig_cost = route_costs[r_idx]
+                for p_idx in range(1, len(route.node_list)):
+                    candidate_nl = route.node_list[:p_idx] + [c] + route.node_list[p_idx:]
+                    if not check_route_capacity(candidate_nl, data):
+                        continue
+                    flag, cost = _chk_route_list(candidate_nl, data)
+                    if flag:
+                        delta = cost - orig_cost
+                        feas_insertions.append((delta, r_idx, p_idx))
+
+            if not feas_insertions:
+                continue
+
+            feas_insertions.sort(key=lambda x: x[0])
+            best_delta = feas_insertions[0][0]
+            if len(feas_insertions) > 1:
+                second_best_delta = feas_insertions[1][0]
+                regret = second_best_delta - best_delta
+            else:
+                regret = 10000.0
+
+            if regret > max_regret or (abs(regret - max_regret) < PRECISION and best_delta < best_cost_for_cand):
+                max_regret = regret
+                best_cand_node = c
+                best_cand_r_idx = feas_insertions[0][1]
+                best_cand_p_idx = feas_insertions[0][2]
+                best_cost_for_cand = best_delta
+
+        if best_cand_node != -1:
+            route = working.get(best_cand_r_idx)
+            route.node_list.insert(best_cand_p_idx, best_cand_node)
+            route.node_list = _intra_route_2_opt(route.node_list, data)
+            route.update(data)
+            unassigned.remove(best_cand_node)
+            placed_any = True
+
+    if not unassigned:
+        working.update(data)
+        working.cal_cost(data)
+        if quick_check_feasibility(working, data):
+            s.copy_from(working)
+            return True
+        return False
+
+    # Depth-1 Ejection Chain for remaining stuck nodes
+    ejection_improved = True
+    while ejection_improved and unassigned:
+        ejection_improved = False
+        for u in list(unassigned):
+            u_placed = False
+            for r_A_idx in range(working.len()):
+                r_A = working.get(r_A_idx)
+                nl_A = list(r_A.node_list)
+                for x_pos in range(1, len(nl_A) - 1):
+                    x = nl_A[x_pos]
+                    nl_A_no_x = nl_A[:x_pos] + nl_A[x_pos+1:]
+                    for u_pos in range(1, len(nl_A_no_x)):
+                        cand_A = nl_A_no_x[:u_pos] + [u] + nl_A_no_x[u_pos:]
+                        if not check_route_capacity(cand_A, data):
+                            continue
+                        fl_A, c_A = _chk_route_list(cand_A, data)
+                        if not fl_A:
+                            continue
+
+                        # Check if ejected customer x can be inserted into any route B (B != A)
+                        for r_B_idx in range(working.len()):
+                            if r_B_idx == r_A_idx:
+                                continue
+                            r_B = working.get(r_B_idx)
+                            nl_B = list(r_B.node_list)
+                            for x_pos_B in range(1, len(nl_B)):
+                                cand_B = nl_B[:x_pos_B] + [x] + nl_B[x_pos_B:]
+                                if not check_route_capacity(cand_B, data):
+                                    continue
+                                fl_B, c_B = _chk_route_list(cand_B, data)
+                                if fl_B:
+                                    r_A.node_list = _intra_route_2_opt(cand_A, data)
+                                    r_A.update(data)
+                                    r_B.node_list = _intra_route_2_opt(cand_B, data)
+                                    r_B.update(data)
+                                    unassigned.remove(u)
+                                    u_placed = True
+                                    ejection_improved = True
+                                    break
+                            if u_placed:
+                                break
+                        if u_placed:
+                            break
+                    if u_placed:
+                        break
+                if u_placed:
+                    break
+
+    if not unassigned:
+        working.update(data)
+        working.cal_cost(data)
+        if quick_check_feasibility(working, data):
+            s.copy_from(working)
+            return True
+    return False
+
+
+def _active_route_elimination(s: Solution, data, max_attempts: int = 10) -> bool:
+    """Active Route Elimination / Fleet Minimization.
+
+    Identifies routes with fewest customers and attempts to absorb all of their
+    customers into the remaining routes using Regret-2 insertion without opening
+    any new routes.
+
+    Returns True if at least one route was eliminated.
+    """
+    improved_any = False
+
+    while s.len() > 1:
+        route_stats = []
+        for i in range(s.len()):
+            c_nodes = [n for n in s.get(i).node_list if _is_customer(n, data)]
+            route_stats.append((len(c_nodes), i, c_nodes))
+        route_stats.sort(key=lambda x: x[0])
+
+        eliminated_in_pass = False
+        limit = min(max_attempts, len(route_stats))
+
+        for c_count, orig_idx, c_nodes in route_stats[:limit]:
+            if orig_idx >= s.len():
+                continue
+
+            cur_nodes = [n for n in s.get(orig_idx).node_list if _is_customer(n, data)]
+            if cur_nodes != c_nodes:
+                continue
+
+            trial = s.clone()
+            trial.delete(orig_idx)
+
+            if not c_nodes:
+                trial.update(data)
+                trial.cal_cost(data)
+                s.copy_from(trial)
+                improved_any = True
+                eliminated_in_pass = True
+                break
+
+            if _insert_ejected_customers_regret(trial, c_nodes, data):
+                trial.update(data)
+                trial.cal_cost(data)
+                if quick_check_feasibility(trial, data):
+                    s.copy_from(trial)
+                    improved_any = True
+                    eliminated_in_pass = True
+                    break
+
+        if not eliminated_in_pass:
+            break
+
+    return improved_any
+
+
 def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
     import math
     s = s_0.clone()
     s.update(data)
     s.cal_cost(data)
-    
-    def score(solution: Solution) -> float:
-        if getattr(data, "paper_flags", False):
-            return sum(route.self.dist for route in solution.route_list)
-        return solution.cost
 
     s_best = s.clone()
-    best_cost = score(s_best)
-    
+    best_cost = s_best.cost
+    cur_score = best_cost
+
     t0 = data.sa_t0
     alpha = data.sa_alpha
     tmin = data.sa_tmin
     itermax = data.sa_itermax
-    
+
     t = t0
     while t > tmin:
         for _ in range(itermax):
+            if s.len() == 0:
+                continue
             move_type = rng.randint(1, 5)
-            
+
             if move_type in {1, 2, 3}:
-                if s.len() == 0:
-                    continue
                 r_idx = rng.randint(0, s.len() - 1)
                 route = s.route_list[r_idx]
                 nl = list(route.node_list)
                 if len(nl) < 4:
                     continue
-                    
+
                 if move_type == 1:
                     idx1 = rng.randint(1, len(nl) - 2)
                     idx2 = rng.randint(1, len(nl) - 2)
@@ -217,25 +400,21 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
                     if idx1 > idx2:
                         idx1, idx2 = idx2, idx1
                     nl[idx1:idx2+1] = reversed(nl[idx1:idx2+1])
-                    
+
                 flag, r_cost = _chk_route_list(nl, data)
                 if flag:
-                    before = score(s)
-                    candidate = s.clone()
-                    candidate.route_list[r_idx].node_list = nl
-                    candidate.update(data)
-                    candidate.cal_cost(data)
-                    new_cost = score(candidate)
-                    delta = new_cost - before
-                    
-                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(before))):
+                    old_cost = route.cal_cost(data)
+                    delta = r_cost - old_cost
+
+                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(cur_score))):
                         route.node_list = nl
                         route.update(data)
-                        s.cal_cost(data)
-                        if score(s) < best_cost:
-                            best_cost = score(s)
+                        route.cal_cost(data)
+                        cur_score += delta
+                        if cur_score < best_cost:
+                            best_cost = cur_score
                             s_best = s.clone()
-                            
+
             else:
                 if s.len() < 2:
                     continue
@@ -243,12 +422,12 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
                 r_idx2 = rng.randint(0, s.len() - 1)
                 while r_idx1 == r_idx2:
                     r_idx2 = rng.randint(0, s.len() - 1)
-                    
+
                 route1 = s.route_list[r_idx1]
                 route2 = s.route_list[r_idx2]
                 nl1 = list(route1.node_list)
                 nl2 = list(route2.node_list)
-                
+
                 if move_type == 4:
                     if len(nl1) < 3:
                         continue
@@ -262,31 +441,33 @@ def _sa_initialization(s_0: Solution, data, rng: random.Random) -> Solution:
                     idx1 = rng.randint(1, len(nl1) - 2)
                     idx2 = rng.randint(1, len(nl2) - 2)
                     nl1[idx1], nl2[idx2] = nl2[idx2], nl1[idx1]
-                    
+
                 flag1, r_cost1 = _chk_route_list(nl1, data)
                 flag2, r_cost2 = _chk_route_list(nl2, data)
                 if flag1 and flag2:
-                    before = score(s)
-                    candidate = s.clone()
-                    candidate.route_list[r_idx1].node_list = nl1
-                    candidate.route_list[r_idx2].node_list = nl2
-                    candidate.update(data)
-                    candidate.cal_cost(data)
-                    new_cost = score(candidate)
-                    delta = new_cost - before
-                    
-                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(before))):
+                    old_cost1 = route1.cal_cost(data)
+                    old_cost2 = route2.cal_cost(data)
+                    new_cost1 = 0.0 if len(nl1) <= 2 else r_cost1
+                    new_cost2 = r_cost2
+                    delta = (new_cost1 + new_cost2) - (old_cost1 + old_cost2)
+
+                    if delta < 0 or rng.random() < math.exp(-delta / (1e-6 + t * abs(cur_score))):
                         route1.node_list = nl1
                         route2.node_list = nl2
                         s.update(data)
                         s.cal_cost(data)
-                        if score(s) < best_cost:
-                            best_cost = score(s)
+                        cur_score = s.cost
+                        if cur_score < best_cost:
+                            best_cost = cur_score
                             s_best = s.clone()
-                            
+
         t = alpha * t
-        
+
+    _active_route_elimination(s_best, data)
+    s_best.update(data)
+    s_best.cal_cost(data)
     return s_best
+
 
 
 def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Random] = None) -> Solution:
@@ -417,6 +598,9 @@ def feasible_or_repair_algorithm_10(s: Solution, data, rng: Optional[random.Rand
     s_prime.update(data)
     s_prime.cal_cost(data)
 
+    # --- Step 4.5: Active route elimination to eliminate redundant routes ---
+    _active_route_elimination(s_prime, data)
+
     # --- Step 5: Final validation ---
     if quick_check_feasibility(s_prime, data):
         s.copy_from(s_prime)
@@ -506,13 +690,14 @@ def output(pop, pop_fit, pop_argrank, data, output_complete=False):
         best.output(data)
 
 
-def _dynamic_parameters(iteration: int, max_iter: int) -> Tuple[float, float]:
+def _dynamic_parameters(iteration: int, max_iter: int) -> Tuple[float, float, float]:
     if max_iter <= 0:
-        return 0.0, 0.15
+        return 0.0, 0.0, 0.15
     ratio = min(max(float(iteration) / float(max_iter), 0.0), 1.0)
     a = 2.0 - 2.0 * ratio
+    h = 5.0 - 5.0 * ratio
     p_hybrid = max(0.15, 0.5 * (1.0 - ratio))
-    return a, p_hybrid
+    return a, h, p_hybrid
 
 def _mode_probability(p_hybrid: float, data) -> float:
     if data.hybrid_mode == HYBRID_MODE_SHO:
@@ -774,7 +959,8 @@ def _guided_route_crossover(
     kept_customers: Set[int] = set()
     route_indices = list(range(best.len()))
     rng.shuffle(route_indices)
-    take = 1 if best.len() == 1 or rng.random() < 0.6 else 2
+    max_take = max(1, best.len() - 1)
+    take = 1 if (best.len() <= 2 or rng.random() < 0.6) else min(2, max_take)
 
     # Seed the offspring with one or two high-quality routes from the best solution.
     for r_index in route_indices[:take]:
@@ -819,6 +1005,10 @@ def _guided_route_crossover(
 
     if len(current_route) > 1:
         child.append(_make_route(current_route[1:], data))
+
+    for r in child.route_list:
+        r.node_list = _intra_route_2_opt(r.node_list, data)
+        r.update(data)
 
     feasible_or_repair(child, data, rng)
     return child
@@ -872,7 +1062,73 @@ def _relocate_customer(s: Solution, data, rng: random.Random) -> bool:
     return True
 
 
+def _mutation_operators(s: Solution, data, rng: random.Random) -> Solution:
+    """Algorithm 7: MutationOperators."""
+    candidate = s.clone()
+    if candidate.len() == 0:
+        return candidate
+
+    mutation_type = rng.choice(["SWAP", "RELOCATE"])
+    if mutation_type == "SWAP":
+        choices = [r_idx for r_idx in range(candidate.len()) if len(_route_customers(candidate.get(r_idx), data)) >= 2]
+        if choices:
+            r_idx = rng.choice(choices)
+            route = candidate.get(r_idx)
+            backup_nl = list(route.node_list)
+            pos = list(range(1, len(route.node_list) - 1))
+            first, second = sorted(rng.sample(pos, 2))
+            op = rng.randrange(3)
+            if op == 0:
+                route.node_list[first], route.node_list[second] = route.node_list[second], route.node_list[first]
+            elif op == 1:
+                node = route.node_list.pop(first)
+                route.node_list.insert(second, node)
+            else:
+                route.node_list[first:second + 1] = reversed(route.node_list[first:second + 1])
+            flag, _ = _chk_route_list(route.node_list, data)
+            if not flag:
+                route.node_list = backup_nl
+            else:
+                route.update(data)
+    elif mutation_type == "RELOCATE" and candidate.len() >= 2:
+        r1, r2 = rng.sample(range(candidate.len()), 2)
+        route1 = candidate.get(r1)
+        route2 = candidate.get(r2)
+        backup_nl1 = list(route1.node_list)
+        backup_nl2 = list(route2.node_list)
+        cust1 = [p for p in range(1, len(route1.node_list) - 1)]
+        cust2 = [p for p in range(1, len(route2.node_list) - 1)]
+        if cust1:
+            if rng.random() < 0.5 and cust2:
+                p1 = rng.choice(cust1)
+                p2 = rng.choice(cust2)
+                route1.node_list[p1], route2.node_list[p2] = route2.node_list[p2], route1.node_list[p1]
+            else:
+                p1 = rng.choice(cust1)
+                node = route1.node_list.pop(p1)
+                p2 = rng.randint(1, len(route2.node_list) - 1)
+                route2.node_list.insert(p2, node)
+            flag1, _ = _chk_route_list(route1.node_list, data)
+            flag2, _ = _chk_route_list(route2.node_list, data)
+            if not (flag1 and flag2):
+                route1.node_list = backup_nl1
+                route2.node_list = backup_nl2
+            else:
+                route1.update(data)
+                route2.update(data)
+
+    candidate.update(data)
+    candidate.cal_cost(data)
+    if quick_check_feasibility(candidate, data):
+        return candidate
+    return s
+
+
 def _light_mutation(s: Solution, data, rng: random.Random) -> None:
+    if getattr(data, "paper_flags", False):
+        mutated = _mutation_operators(s, data, rng)
+        s.copy_from(mutated)
+        return
     backup = s.clone()
     if rng.random() < 0.5:
         _swap_two_customers(s, data, rng)
@@ -1097,6 +1353,32 @@ def _sa_accept(
     return rng.random() < probability
 
 
+def _sho_diversification(
+    current: Solution,
+    best: Solution,
+    peer: Solution,
+    h: float,
+    data,
+    rng: random.Random,
+) -> Solution:
+    """Algorithm 5: BasedOnSHOUpdate (Population-Guided Diversification).
+
+    Uses guided route crossover to blend best, peer (partner), and current solutions,
+    followed by controlled mutation and feasibility repair. Parameter h corresponds to
+    SHO's encircling prey vector decay h in [5, 0].
+    """
+    child = _guided_route_crossover(best, peer, current, data, rng)
+    p_mut = data.sho_mutation_prob * (0.6 + 0.8 * (h / 5.0))
+    if rng.random() < p_mut:
+        _light_mutation(child, data, rng)
+        if h > 2.5 and rng.random() < 0.5:
+            _light_mutation(child, data, rng)
+    feasible_or_repair(child, data, rng)
+    if not quick_check_feasibility(child, data):
+        return current.clone()
+    return child
+
+
 def _update_agent_worker(task: AgentUpdateTask) -> Tuple[int, Solution, float, bool]:
     data = task.data
     rng = random.Random(task.seed)
@@ -1104,10 +1386,9 @@ def _update_agent_worker(task: AgentUpdateTask) -> Tuple[int, Solution, float, b
     data.rng = rng
     try:
         if rng.random() < task.p_hybrid:
-            new_solution = _guided_route_crossover(task.best, task.peer, task.current, data, rng)
-            if rng.random() < data.sho_mutation_prob:
-                _light_mutation(new_solution, data, rng)
-            feasible_or_repair(new_solution, data, rng)
+            new_solution = _sho_diversification(
+                task.current, task.best, task.peer, task.h, data, rng
+            )
         else:
             new_solution = _woa_intensification(task.current, task.best, task.a, data, rng)
 
@@ -1164,6 +1445,7 @@ def _install_move_memory(data, small_opts: List[str]) -> None:
 
 def _combined_local_search(s: Solution, data) -> None:
     """Algorithm 8's ordered, first-improvement neighbourhood search."""
+    _active_route_elimination(s, data)
     while True:
         improved = False
         baseline = s.cost
@@ -1189,12 +1471,21 @@ def _combined_local_search(s: Solution, data) -> None:
             continue
 
         # Relocate one customer, including moves between two existing routes.
+        granular = getattr(data, "granular", None)
         for source_index, source in enumerate(s.route_list):
             for source_pos in range(1, len(source.node_list) - 1):
+                source_node = source.node_list[source_pos]
                 for target_index, target in enumerate(s.route_list):
                     for target_pos in range(1, len(target.node_list)):
                         if source_index == target_index and target_pos in (source_pos, source_pos + 1):
                             continue
+                        if granular and source_index != target_index:
+                            pred = target.node_list[target_pos - 1]
+                            succ = target.node_list[target_pos]
+                            if (pred != data.DC and not granular.is_candidate(source_node, pred)) and \
+                               (succ != data.DC and not granular.is_candidate(source_node, succ)):
+                                continue
+
                         candidate = s.clone()
                         node = candidate.get(source_index).node_list.pop(source_pos)
                         adjusted = target_pos
@@ -1220,7 +1511,11 @@ def _combined_local_search(s: Solution, data) -> None:
         for first_index in range(s.len()):
             for second_index in range(first_index + 1, s.len()):
                 for first_pos in range(1, len(s.get(first_index).node_list) - 1):
+                    node1 = s.get(first_index).node_list[first_pos]
                     for second_pos in range(1, len(s.get(second_index).node_list) - 1):
+                        node2 = s.get(second_index).node_list[second_pos]
+                        if granular and not granular.is_candidate(node1, node2):
+                            continue
                         candidate = s.clone()
                         first = candidate.get(first_index).node_list
                         second = candidate.get(second_index).node_list
@@ -1235,9 +1530,54 @@ def _combined_local_search(s: Solution, data) -> None:
                         break
                 if improved:
                     break
+        if improved:
+            continue
+
+        # 2-opt*: inter-route tail exchange between distinct routes.
+        for r1_idx in range(s.len()):
+            r1 = s.get(r1_idx)
+            nl1 = r1.node_list
+            len1 = len(nl1)
+            for r2_idx in range(r1_idx + 1, s.len()):
+                r2 = s.get(r2_idx)
+                nl2 = r2.node_list
+                len2 = len(nl2)
+
+                for p1 in range(1, len1):
+                    for p2 in range(1, len2):
+                        if (p1 == 1 and p2 == 1) or (p1 == len1 - 1 and p2 == len2 - 1):
+                            continue
+                        new_nl1 = nl1[:p1] + nl2[p2:]
+                        new_nl2 = nl2[:p2] + nl1[p1:]
+
+                        if check_route_capacity(new_nl1, data) and check_route_capacity(new_nl2, data):
+                            fl1, c1 = _chk_route_list(new_nl1, data)
+                            fl2, c2 = _chk_route_list(new_nl2, data)
+                            if fl1 and fl2:
+                                old_c1 = r1.cal_cost(data)
+                                old_c2 = r2.cal_cost(data)
+                                if (c1 + c2) < (old_c1 + old_c2) - PRECISION:
+                                    candidate = s.clone()
+                                    candidate.get(r1_idx).node_list = _intra_route_2_opt(new_nl1, data)
+                                    candidate.get(r2_idx).node_list = _intra_route_2_opt(new_nl2, data)
+                                    for idx in reversed(range(candidate.len())):
+                                        if len(_route_customers(candidate.get(idx), data)) == 0:
+                                            candidate.delete(idx)
+                                    candidate.update(data)
+                                    candidate.cal_cost(data)
+                                    if quick_check_feasibility(candidate, data) and candidate.cost < baseline - PRECISION:
+                                        s.copy_from(candidate)
+                                        improved = True
+                                        break
+                    if improved:
+                        break
+                if improved:
+                    break
             if improved:
                 break
         if not improved:
+            if _active_route_elimination(s, data):
+                continue
             return
 
 
@@ -1250,6 +1590,7 @@ def _deep_local_search_best(s: Solution, data, executor=None) -> None:
     try:
         data.skip_finding_lo = False
         data.escape_local_optima = 0
+        _active_route_elimination(s, data)
         if getattr(data, "paper_flags", False):
             _combined_local_search(s, data)
         else:
@@ -1269,11 +1610,30 @@ def _deep_local_search_best(s: Solution, data, executor=None) -> None:
 
 def _ruin_and_recreate(s: Solution, data, rng: random.Random) -> Solution:
     candidate = s.clone()
+
+    # Route-Elimination Ruin: attempt to eliminate the smallest route
+    if rng.random() < 0.5 and candidate.len() > 1:
+        route_stats = []
+        for i in range(candidate.len()):
+            c_nodes = [n for n in candidate.get(i).node_list if _is_customer(n, data)]
+            route_stats.append((len(c_nodes), i, c_nodes))
+        route_stats.sort(key=lambda x: x[0])
+        _, smallest_idx, c_nodes = route_stats[0]
+        trial = candidate.clone()
+        trial.delete(smallest_idx)
+        if _insert_ejected_customers_regret(trial, c_nodes, data):
+            trial.update(data)
+            trial.cal_cost(data)
+            if quick_check_feasibility(trial, data):
+                return trial
+
     customers = _solution_customers(candidate, data)
     if len(customers) == 0:
         customers = [node for node in range(data.customer_num + 1) if node != data.DC]
     rng.shuffle(customers)
-    remove_count = max(1, int(round(len(customers) * rng.uniform(0.20, 0.40))))
+    lower_r = 0.35 if data.customer_num <= 25 else 0.20
+    upper_r = 0.65 if data.customer_num <= 25 else 0.40
+    remove_count = max(2 if data.customer_num <= 25 else 1, int(round(len(customers) * rng.uniform(lower_r, upper_r))))
     removed = set(customers[:remove_count])
     _remove_customers(candidate, removed, data)
     pending = list(removed)
@@ -1359,7 +1719,7 @@ def search_framework(data, best_s):
             for gen in range(1, data.max_iter + 1):
                 best_before_generation = run_best.cost
                 iteration_index = gen - 1
-                a, p_hybrid = _dynamic_parameters(iteration_index, data.max_iter)
+                a, h, p_hybrid = _dynamic_parameters(iteration_index, data.max_iter)
                 p_mode = _mode_probability(p_hybrid, data)
                 best_snapshot = run_best.clone()
                 tasks: List[AgentUpdateTask] = []
@@ -1375,6 +1735,7 @@ def search_framework(data, best_s):
                             current_fit=pop_fit[index],
                             p_hybrid=p_mode,
                             a=a,
+                            h=h,
                             iteration=iteration_index,
                             max_iter=data.max_iter,
                             seed=data.rng.randint(0, 2**31 - 1),

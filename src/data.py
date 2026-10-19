@@ -137,6 +137,7 @@ class Data:
         self.init = DEFAULT_INIT
         if self.paper_flags:
             self.init = "sa"
+        self.granular = None
         self.sa_t0 = 100.0
         self.sa_alpha = 0.95
         self.sa_tmin = 0.1
@@ -385,7 +386,11 @@ class Data:
             raise SystemExit(-1)
         print("SHO mutation probability: %.2f" % self.sho_mutation_prob)
 
-        if parser.exists("hybrid_mode"):
+        if parser.exists("sho"):
+            self.hybrid_mode = HYBRID_MODE_SHO
+        elif parser.exists("woa"):
+            self.hybrid_mode = HYBRID_MODE_WOA
+        elif parser.exists("hybrid_mode"):
             self.hybrid_mode = parser.retrieve("hybrid_mode")
         if self.hybrid_mode not in (HYBRID_MODE_PH_SHOWOA, HYBRID_MODE_SHO, HYBRID_MODE_WOA):
             print(
@@ -650,6 +655,8 @@ class Data:
                     100.0 * float(count_c) / total_edges,
                 )
             )
+        from .granular_neighborhood import GranularNeighborhood
+        self.granular = GranularNeighborhood(self, k=25)
 
     def clear_mem(self) -> None:
         for opt in self.mem.values():

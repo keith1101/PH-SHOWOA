@@ -16,6 +16,7 @@ from statistics import mean
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ROOT / "tests" / "paper_performance_targets.csv"
+TARGETS_SHO = ROOT / "tests" / "paper_performance_targets_sho.csv"
 DEFAULT_RESULTS_ROOT = ROOT / "batch_results"
 VEHICLE_WEIGHT = 2000.0
 
@@ -224,8 +225,11 @@ def build_solver_command(args, problem_path: Path, seed: int, output_path: Path)
         args.compute_backend,
     ]
 
+    if getattr(args, "sho", False):
+        cmd.append("--sho")
+
     if args.paper_flags:
-        cmd.extend(PAPER_EXTRA_FLAGS)
+        cmd.append("--paper_flags")
 
     if args.time is not None:
         cmd.extend(["--time", str(args.time)])
@@ -533,8 +537,11 @@ def summarize_instance(
         best_meets_paper=bool(
             best_record.vehicles is not None
             and best_record.distance is not None
-            and best_record.vehicles <= paper_vehicles
-            and best_record.distance <= paper_distance
+            and (
+                best_record.total_cost <= paper_total_cost
+                or best_record.vehicles < paper_vehicles
+                or (best_record.vehicles == paper_vehicles and best_record.distance <= paper_distance)
+            )
         ),
     )
     save_instance_summary(instance_dir, summary, run_records, best_record)
@@ -633,6 +640,7 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--max_iter", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--hybrid_mode", default="ph_showoa")
+    parser.add_argument("--sho", action="store_true", help="Run standalone SHO mode.")
     parser.add_argument("--compute_backend", default="auto")
     parser.add_argument("--local_search_interval", type=int, default=25)
     parser.add_argument("--stagnation_interval", type=int, default=50)
@@ -656,7 +664,12 @@ def parse_args(argv: list[str] | None = None):
         action="store_false",
         help="Skip the built-in paper-style extra flags.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.sho:
+        args.hybrid_mode = "sho"
+        if args.paper_targets == TARGETS and TARGETS_SHO.exists():
+            args.paper_targets = TARGETS_SHO
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

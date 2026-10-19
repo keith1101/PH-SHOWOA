@@ -15,45 +15,35 @@ node_modules/
 
 # Editor / OS files
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db
 
-# Local agent / workspace metadata
+# Agent session metadata, transcripts & logs
 .agents/
 .codex/
+.licenses/
+.system_generated/
+.user_uploaded/
+docs/[0-9a-fA-F]*-[0-9a-fA-F]*/
+*.metadata.json
+task-*.log
+plan.md
+walkthrough.md
+agent_knowledge_transfer.md
+C++*
 
-# Generated datasets, benchmark outputs, and scratch files
-data/
-batch_results/
-tmp/
-outputs/
-KAGGLE_RUN_PLAN.md
-KAGGLE_RUN_RULES.md
-kaggle-kernel-staging/
-kaggle-pop32-account-e/
-kaggle-pop32-followups/
-kaggle-pop32-initial/
-kaggle-rcdp104-batches/
-kaggle-rdp203-retries/
-kaggle-rdp203-retries2/
-kaggle-rdp203-retries3/
-kaggle-rerun-rcdp205/
-kaggle-rerun-rcdp207/
-docs/PH-SHOWOA.xlsx
-scripts/format_ph_showoa.mjs
-scripts/prepare_kaggle_pop32_account_e.ps1
-scripts/prepare_kaggle_pop32_batch.ps1
-scripts/prepare_kaggle_pop32_initial.ps1
-paper-deck/
-resource/
-experiment_results.csv
-C++_benchmark_results.md
-C++_paper_benchmark_results.md
-journal.pone.0343262.pdf
-build_cuda/
-# C++ build artifacts
+# C/C++ build artifacts & binary outputs
 build/
+build_*/
 cmake-build-*/
+*.exe
+*.obj
+*.o
+*.pdb
+*.ilk
+*.lib
+*.exp
 src_cpp/build*/
 src_cpp/CMakeFiles/
 src_cpp/CMakeCache.txt
@@ -69,19 +59,69 @@ src_cpp/*.ilk
 src_cpp/*.lib
 src_cpp/*.exp
 src_cpp/*.log
-
-C++_bao_cao_kien_truc_hybrid_ieee.md
-C++_hybrid_architecture_ieee_report.md
-C++_optimization_update_report.md
-C++_paper_benchmark_results.csv
-pyproject.toml
-build_cpu/
-build_cuda_debug/
-build_cuda_msvc/
-agent_knowledge_transfer.md
 build_log.txt
-C++*
-walkthrough.md
+
+# LaTeX compilation auxiliary files & compiled PDF documents
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.spl
+*.synctex.gz
+*.synctex(busy)
+*.toc
+*.nav
+*.snm
+*.vrb
+*.dvi
+*.ps
+*.pdf
+
+# Kaggle batch generation, kernel packaging & run directories
+check_output/
+batch_results/
+tmp/
+outputs/
+data/
+kaggle-*/
+KAGGLE_RUN_PLAN.md
+KAGGLE_RUN_RULES.md
+
+# Scratch scripts and temporary files
+scratch_*.py
+scratch*/
+**/scratch/
+arxiv_vrpspdtw.json
+
+# Ephemeral Kaggle wave dispatching, launch scripts, and allocation tables
+scripts/dispatch_*.py
+scripts/launch_*.py
+scripts/check_w*.py
+scripts/prepare_and_dispatch_*.py
+scripts/prepare_kaggle_*.ps1
+scripts/push_*.py
+scripts/download_*.py
+scripts/relaunch_*.py
+scripts/*allocations*.json
+scripts/*wave*.py
+scripts/format_ph_showoa.mjs
+scripts/prepare_wave*.py
+scripts/prepare_tafuhihi_job.py
+scripts/prepare_test_job.py
+scripts/prepare_dataset_update.py
+scripts/allocate_free_slots.py
+scripts/check_all_*.py
+scripts/check_live_*.py
+scripts/monitor_harvest_kaggle_new.py
+
+# Benchmark run results & spreadsheets (keep tests/paper_performance_targets*.csv)
+docs/*.xlsx
+docs/*.csv
+*.xlsx
+experiment_results.csv
 PH-SHOWOA - GPU_Hybrid.csv
-plan.md
-CMakeLists.txt
+paper-deck/
+resource/

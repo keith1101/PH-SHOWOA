@@ -13,6 +13,8 @@ from statistics import mean
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ROOT / "tests" / "paper_performance_targets.csv"
+TARGETS_SHO = ROOT / "tests" / "paper_performance_targets_sho.csv"
+TARGETS_WOA = ROOT / "tests" / "paper_performance_targets_woa.csv"
 
 DEFAULT_INSTANCES = [
     "RCdp1001",
@@ -89,7 +91,22 @@ def load_targets(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fp))
 
 
-def resolve_instances(requested: list[str], targets: list[dict[str, str]]) -> list[dict[str, str]]:
+def resolve_instances(
+    requested: list[str], targets: list[dict[str, str]], category: str | None = None
+) -> list[dict[str, str]]:
+    if category:
+        cat = category.strip().lower()
+        if cat == "all":
+            return targets
+        elif cat in ("small", "3", "table3"):
+            return [row for row in targets if str(row.get("table", "")).strip() == "3" or int(row.get("size", 100)) <= 50]
+        elif cat in ("type1", "4", "table4"):
+            return [row for row in targets if str(row.get("table", "")).strip() == "4"]
+        elif cat in ("type2", "5", "table5"):
+            return [row for row in targets if str(row.get("table", "")).strip() == "5"]
+        else:
+            raise SystemExit(f"Unknown category: {category}. Choose from: small, type1, type2, all")
+
     if len(requested) == 1 and requested[0].strip().lower() == "all":
         return targets
 
@@ -179,8 +196,11 @@ def build_solver_command(args, problem_path: Path, seed: int, output_path: Path)
         args.compute_backend,
     ]
 
+    if getattr(args, "sho", False):
+        cmd.append("--sho")
+
     if args.paper_flags:
-        cmd.extend(PAPER_EXTRA_FLAGS)
+        cmd.append("--paper_flags")
 
     if args.time is not None:
         cmd.extend(["--time", str(args.time)])
@@ -325,8 +345,11 @@ def summarize_instance(row: dict[str, str], args) -> InstanceSummary:
     best_meets_paper = bool(
         best.vehicles is not None
         and best.distance is not None
-        and best.vehicles <= paper_vehicles
-        and best.distance <= paper_distance
+        and (
+            best.total_cost <= paper_total_cost
+            or best.vehicles < paper_vehicles
+            or (best.vehicles == paper_vehicles and best.distance <= paper_distance)
+        )
     )
 
     return InstanceSummary(
@@ -459,6 +482,14 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--max_iter", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--hybrid_mode", default="ph_showoa")
+    parser.add_argument("--sho", action="store_true", help="Run standalone SHO mode.")
+    parser.add_argument("--woa", action="store_true", help="Run standalone WOA mode.")
+    parser.add_argument(
+        "--category",
+        choices=["small", "type1", "type2", "all"],
+        default=None,
+        help="Run instances by paper category: small (Table 3), type1 (Table 4), type2 (Table 5), or all.",
+    )
     parser.add_argument("--compute_backend", default="auto")
     parser.add_argument("--local_search_interval", type=int, default=25)
     parser.add_argument("--stagnation_interval", type=int, default=50)
@@ -482,13 +513,22 @@ def parse_args(argv: list[str] | None = None):
         action="store_false",
         help="Skip the built-in paper-style extra flags.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.sho:
+        args.hybrid_mode = "sho"
+        if args.paper_targets == TARGETS and TARGETS_SHO.exists():
+            args.paper_targets = TARGETS_SHO
+    elif args.woa:
+        args.hybrid_mode = "woa"
+        if args.paper_targets == TARGETS and TARGETS_WOA.exists():
+            args.paper_targets = TARGETS_WOA
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     targets = load_targets(args.paper_targets)
-    selected = resolve_instances(args.instances, targets)
+    selected = resolve_instances(args.instances, targets, category=args.category)
 
     summaries: list[InstanceSummary] = []
     for row in selected:

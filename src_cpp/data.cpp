@@ -236,6 +236,8 @@ void Data::parse_args(int argc, char* argv[]) {
             }
         } else if (arg == "--gpu_solution_verify_interval" && i + 1 < argc) {
             gpu_solution_verify_interval = std::max(0, std::stoi(argv[++i]));
+        } else if (arg == "--sho") {
+            hybrid_mode = "sho";
         } else if (arg == "--hybrid_mode" && i + 1 < argc) {
             hybrid_mode = argv[++i];
             if (hybrid_mode != "ph_showoa" && hybrid_mode != "sho" && hybrid_mode != "woa") {
