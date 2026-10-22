@@ -26,12 +26,14 @@ def repair_procedure(solution: Solution, problem: Problem) -> Solution:
     for c, r_indices in visited_routes.items():
         if len(r_indices) > 1:
             best_r_idx = r_indices[0]
-            best_cost = float("inf")
+            best_insertion_cost = float("inf")
             for r_idx in r_indices:
                 r = routes[r_idx]
-                cost = _route_distance(r, problem)
-                if cost < best_cost:
-                    best_cost = cost
+                r_without_c = [x for x in r if x != c]
+                # Algorithm 10 line 5: marginal insertion cost = distance(r) - distance(r without c)
+                delta_cost = _route_distance(r, problem) - _route_distance(r_without_c, problem)
+                if delta_cost < best_insertion_cost:
+                    best_insertion_cost = delta_cost
                     best_r_idx = r_idx
             # Remove c from all other routes
             for r_idx in r_indices:
@@ -108,16 +110,16 @@ def repair_procedure(solution: Solution, problem: Problem) -> Solution:
             attempts += 1
             r.remove(late_c)
             placed = False
-            best_cost = float("inf")
+            best_arrival_time = float("inf")
             best_target = (-1, -1)
             for target_idx, target_r in enumerate(routes):
-                orig_cost = _route_distance(target_r, problem)
                 for pos in range(len(target_r) + 1):
                     cand = target_r[:pos] + [late_c] + target_r[pos:]
                     if is_route_feasible(cand, problem):
-                        delta = _route_distance(cand, problem) - orig_cost
-                        if delta < best_cost:
-                            best_cost = delta
+                        # Algorithm 10 line 31: Reinsert c at best feasible position (earliest arrival)
+                        arr_time = _calculate_arrival_time_at_pos(target_r, late_c, pos, problem)
+                        if arr_time < best_arrival_time:
+                            best_arrival_time = arr_time
                             best_target = (target_idx, pos)
             if best_target[0] != -1:
                 routes[best_target[0]].insert(best_target[1], late_c)
@@ -175,6 +177,22 @@ def _find_first_late_customer(route: List[int], problem: Problem) -> Optional[in
     if time > problem.due_time[0] + 1e-9:
         return route[-1]
     return None
+
+
+def _calculate_arrival_time_at_pos(route: List[int], customer: int, pos: int, problem: Problem) -> float:
+    """Computes exact vehicle arrival time at candidate customer when inserted at pos."""
+    cand = route[:pos] + [customer] + route[pos:]
+    time = problem.ready_time[0]
+    prev = 0
+    for idx, c in enumerate(cand):
+        time += problem.travel_time[prev][c]
+        if time < problem.ready_time[c]:
+            time = problem.ready_time[c]
+        if idx == pos:
+            return time
+        time += problem.service_time[c]
+        prev = c
+    return time
 
 
 def _apply_intra_2opt(route: List[int], problem: Problem) -> None:

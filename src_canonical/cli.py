@@ -32,8 +32,22 @@ def main():
         sys.exit(1)
     inst_path = Path(path_str)
     if not inst_path.exists():
-        print(f"Error: Instance file {inst_path} does not exist.", file=sys.stderr)
-        sys.exit(1)
+        # Convenient fallback to data/Wang_Chen
+        candidates = [
+            Path("data/Wang_Chen") / f"explicit_{path_str.lower()}.vrpsdptw",
+            Path("data/Wang_Chen") / f"{path_str.lower()}.txt",
+            Path("data/Wang_Chen") / f"{path_str}.txt",
+            Path("data/Wang_Chen") / path_str,
+        ]
+        found = False
+        for cand in candidates:
+            if cand.exists():
+                inst_path = cand
+                found = True
+                break
+        if not found:
+            print(f"Error: Instance file {inst_path} does not exist.", file=sys.stderr)
+            sys.exit(1)
 
     problem = Problem.load(inst_path)
     print(f"=== Loaded instance {problem.name} ({problem.num_customers} customers, Q={problem.capacity}, maxV={problem.max_vehicles}) ===")

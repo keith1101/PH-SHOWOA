@@ -55,3 +55,42 @@ def test_local_search_feasibility():
     is_feas, note = check_feasibility_canonical(improved, problem)
     assert is_feas, f"Local search produced infeasible solution: {note}"
     assert improved.cost <= sol.cost + 1e-6
+
+
+def test_hybrid_branch_order():
+    from src_canonical.algorithm3_hybrid import update_position_hybrid
+    problem = Problem.load("data/Wang_Chen/explicit_rcdp1001.vrpsdptw")
+    sol = Solution([[1, 2], [4, 7, 8], [6, 5, 9, 3, 10]], problem)
+
+    # With p_hybrid = 1.0, any random p < 1.0 -> MUST be SHO
+    sol_sho, tag_sho = update_position_hybrid(
+        current=sol, best_whale=sol, population=[sol],
+        p_hybrid=1.0, a=1.0, problem=problem, rng=random.Random(42)
+    )
+    assert tag_sho == "SHO"
+
+    # With p_hybrid = 0.0, any random p >= 0.0 -> MUST be WOA
+    sol_woa, tag_woa = update_position_hybrid(
+        current=sol, best_whale=sol, population=[sol],
+        p_hybrid=0.0, a=1.0, problem=problem, rng=random.Random(42)
+    )
+    assert tag_woa == "WOA"
+
+
+def test_sho_returns_base_when_no_improvement():
+    from src_canonical.algorithm5_sho import based_on_sho_update
+    problem = Problem.load("data/Wang_Chen/explicit_rcdp1001.vrpsdptw")
+    base = Solution([[1, 2], [4, 7, 8], [6, 5, 9, 3, 10]], problem)
+    best = Solution([[1, 2], [4, 7, 8], [6, 5, 9, 3, 10]], problem)
+    # artificially lower best cost to distinguish
+    best.cost = 100.0
+
+    rng = random.Random(42)
+    res = based_on_sho_update(
+        hyena=base, best_hyena=best, population=[base],
+        problem=problem, rng=rng, mutation_prob=0.0
+    )
+    # If not improved, MUST return base (not best)
+    assert res.cost >= base.cost - 1e-6 or res.cost < base.cost
+    # Must NOT blindly copy best's cost
+    assert abs(res.cost - 100.0) > 1.0

@@ -110,10 +110,10 @@ class PHSHOWOASolver:
                     if not is_solution_feasible(new_sol, self.problem):
                         return w
 
-                    # Lines 15-27: SA Acceptance
+                    # Lines 15-27: SA Acceptance (strictly nf < cf according to Algorithm 1 line 17)
                     nf = new_sol.cost
                     cf = w.cost
-                    if nf < cf or new_sol < w:
+                    if nf < cf:
                         return new_sol
                     else:
                         denom = 1e-6 + temperature * abs(cf)
@@ -156,8 +156,7 @@ class PHSHOWOASolver:
             if pool is not None:
                 pool.shutdown(wait=False)
 
-        # Final local search on best solution
-        best = combined_local_search(best, self.problem)
+        # Lines 49-50: End of loop, return best directly (no post-loop local search)
         elapsed = time.time() - start_time
 
         # Line 50: Feasibility verification (Section 3 mathematical constraints)

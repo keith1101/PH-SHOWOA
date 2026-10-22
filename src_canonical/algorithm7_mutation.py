@@ -10,7 +10,7 @@ from .algorithm9_feasibility import is_route_feasible
 def mutate_solution(solution: Solution, problem: Problem, rng: random.Random) -> Solution:
     """
     Algorithm 7. MutationOperators
-    Randomly chooses SWAP (intra-route move: swap, insert, reverse, scramble)
+    Randomly chooses SWAP (intra-route move: swap, insert, reverse)
     or RELOCATE (inter-route move: Pd-shift, Pd-exchange).
     Rolls back if constraints are violated.
     """
@@ -29,7 +29,7 @@ def mutate_solution(solution: Solution, problem: Problem, rng: random.Random) ->
         r = routes[r_idx]
         if len(r) >= 2:
             backup_r = list(r)
-            op = rng.randint(0, 3)  # 0: swap, 1: insert, 2: inversion, 3: scramble
+            op = rng.randint(0, 2)  # 0: swap, 1: insert, 2: reverse
             _apply_intra_operation(r, op, rng)
             if not is_route_feasible(r, problem):
                 routes[r_idx] = backup_r
@@ -68,13 +68,6 @@ def _apply_intra_operation(r: List[int], op: int, rng: random.Random) -> None:
         i = rng.randint(0, n - 2)
         j = rng.randint(i + 1, n - 1)
         r[i : j + 1] = r[i : j + 1][::-1]
-    else:
-        # Scramble: shuffle random subsegment
-        i = rng.randint(0, n - 2)
-        j = rng.randint(i + 1, n - 1)
-        sub = r[i : j + 1]
-        rng.shuffle(sub)
-        r[i : j + 1] = sub
 
 
 def _apply_inter_operation(routes: List[List[int]], op: int, rng: random.Random) -> None:

@@ -73,13 +73,16 @@ def based_on_woa_update(
     routes = [r for r in routes if len(r) > 0]
     cand = Solution(routes, problem)
 
-    # Validate overall candidate solution (ValidateRoutes & Repair)
+    # Lines 37-38: ValidateRoutes fallback to single-customer routes if invalid
     if not is_solution_feasible(cand, problem):
-        cand = repair_procedure(cand, problem)
-        if not is_solution_feasible(cand, problem):
-            return whale.copy()
+        fallback_routes = [[c] for c in range(1, problem.num_customers + 1)]
+        cand = Solution(fallback_routes, problem)
 
-    return cand
+    # Lines 42-44 & 50: Accept candidate only if better than current whale
+    if cand.cost < whale.cost:
+        return cand
+    else:
+        return whale.copy()
 
 
 def _relink(route: List[int], target: List[int], fraction: float, forward: bool) -> None:

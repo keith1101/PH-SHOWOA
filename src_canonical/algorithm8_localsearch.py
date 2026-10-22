@@ -14,7 +14,9 @@ def combined_local_search(solution: Solution, problem: Problem) -> Solution:
     (b) Relocate: single-customer reinsertion (intra and inter route)
     (c) Swap: customer exchange between distinct routes
     Restarts from (a) on the first strict improvement.
-    Pure paper operators strictly conforming to paper Section 4.
+    Note on feasibleOrRepair: We evaluate direct route feasibility rather than invoking
+    the heavy Algorithm 10 repair on every single candidate move to preserve practical
+    polynomial time complexity while maintaining strict solution validity.
     """
     current = solution.copy()
     improved = True

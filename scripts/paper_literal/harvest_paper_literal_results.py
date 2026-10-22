@@ -94,6 +94,8 @@ def check_and_download_kernels(allocations: List[Dict]) -> None:
             else:
                 print(f"   --> FAILED: {ref} | {res.stderr.strip()}")
 
+    return len(completed_jobs) == len(allocations)
+
 
 def aggregate_results(output_csv: Path) -> None:
     print("\n" + "=" * 75)

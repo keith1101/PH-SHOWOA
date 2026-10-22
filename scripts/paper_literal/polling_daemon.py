@@ -34,13 +34,21 @@ def run_polling_loop(interval_minutes: int, output_csv: Path, max_polls: int | N
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n[{now_str}] === POLL CYCLE #{poll_count} START ===", flush=True)
 
+        all_done = False
         try:
-            check_and_download_kernels(allocations)
+            all_done = check_and_download_kernels(allocations)
             aggregate_results(output_csv)
         except Exception as e:
             print(f"[{now_str}] Error during poll cycle #{poll_count}: {e}", flush=True)
 
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === POLL CYCLE #{poll_count} FINISHED ===", flush=True)
+
+        if all_done:
+            print("\n" + "=" * 75, flush=True)
+            print("ALL 65 BENCHMARK INSTANCES (1,950 RUNS) FULLY HARVESTED AND AGGREGATED!", flush=True)
+            print(f"Final CSV saved to: {output_csv}", flush=True)
+            print("=" * 75 + "\n", flush=True)
+            break
 
         if max_polls is not None and poll_count >= max_polls:
             print(f"Reached max polls ({max_polls}). Exiting daemon.", flush=True)
@@ -52,7 +60,7 @@ def run_polling_loop(interval_minutes: int, output_csv: Path, max_polls: int | N
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Polling Daemon for Paper-Literal Benchmark Harvest")
-    parser.add_argument("--interval", type=int, default=45, help="Polling interval in minutes (default: 45)")
+    parser.add_argument("--interval", type=int, default=20, help="Polling interval in minutes (default: 20)")
     parser.add_argument("--output_csv", type=Path, default=DEFAULT_OUTPUT_CSV, help="Path to aggregate results CSV")
     parser.add_argument("--max_polls", type=int, default=None, help="Maximum number of poll cycles (default: unlimited)")
     args = parser.parse_args()

@@ -54,8 +54,8 @@ def based_on_sho_update(
         if not is_solution_feasible(combined, problem):
             return base
 
-    # Lines 14-21: Return better solution
-    if combined < base or combined.cost < base.cost:
+    # Lines 14-21: Return better solution (page 15: compared against reference/current solution)
+    if combined.cost < base.cost:
         return combined
     else:
-        return best_hyena.copy()
+        return base

@@ -4,8 +4,7 @@ import random
 from typing import List, Set
 from .problem import Problem
 from .solution import Solution
-from .algorithm10_repair import repair_procedure
-from .algorithm9_feasibility import is_route_feasible
+from .algorithm9_feasibility import is_route_capacity_feasible
 
 
 def crossover_guided(
@@ -19,8 +18,8 @@ def crossover_guided(
     Algorithm 6. CrossoverGuided for VRPSPDTW
     Preserves 1 or 2 seed routes from best,
     collects remaining customers from partner then current,
-    reconstructs routes checking operational capacity and time feasibility,
-    and repairs coverage if necessary.
+    reconstructs routes checking only vehicle capacity (Algorithm 6 line 41),
+    and returns offspring directly (repair is handled in Algorithm 5 line 10).
     """
     if not best.routes:
         return current.copy()
@@ -62,7 +61,7 @@ def crossover_guided(
 
     for c in remaining:
         cand_route = current_route + [c]
-        if current_route and not is_route_feasible(cand_route, problem):
+        if current_route and not is_route_capacity_feasible(cand_route, problem):
             offspring_routes.append(current_route)
             current_route = [c]
         else:
@@ -71,7 +70,5 @@ def crossover_guided(
     if current_route:
         offspring_routes.append(current_route)
 
-    # Wrap as Solution and repair if necessary
-    offspring = Solution(offspring_routes, problem)
-    repaired = repair_procedure(offspring, problem)
-    return repaired
+    # Lines 55-57: Wrap as Solution, evaluate fitness, and return directly
+    return Solution(offspring_routes, problem)

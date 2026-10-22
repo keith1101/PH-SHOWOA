@@ -69,6 +69,28 @@ def check_feasibility_canonical(solution: Solution, problem: Problem) -> Tuple[b
     return True, ""
 
 
+def is_route_capacity_feasible(route: List[int], problem: Problem) -> bool:
+    """
+    Checks vehicle capacity feasibility under Section 3 Eq. (5) dynamic load model.
+    Used by Crossover (Algorithm 6) and Repair (Algorithm 10).
+    """
+    if not route:
+        return True
+
+    # Initial departure load at depot L_0 = sum(d_i) <= Q
+    load = sum(problem.delivery[c] for c in route)
+    if load > problem.capacity + 1e-9:
+        return False
+
+    # Dynamic transition L_k = L_{k-1} - d_k + p_k
+    for c in route:
+        load = load - problem.delivery[c] + problem.pickup[c]
+        if load < -1e-9 or load > problem.capacity + 1e-9:
+            return False
+
+    return True
+
+
 def is_route_feasible(route: List[int], problem: Problem) -> bool:
     """
     Checks feasibility of a single route under Section 3 constraints.

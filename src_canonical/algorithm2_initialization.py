@@ -56,7 +56,8 @@ def initialize_solution_sa(
 ) -> Solution:
     """
     Algorithm 2. The Initialization Procedure for VRPSPDTW
-    Simulated Annealing on TD (total travel distance).
+    Simulated Annealing on Total Cost (Priority Level 2: pseudo-code lines 2, 7, 10 use CalculateObjective).
+    T0=1.0, alpha=0.9, t_min=0.01, iter_max=20 are Priority Level 4 selections (Table 2 does not specify SA parameters).
     Perturbs S via swap, insert, reverse, Pd-shift, Pd-exchange.
     """
     s = s0.copy()

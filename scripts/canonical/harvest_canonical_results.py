@@ -12,7 +12,7 @@ from typing import Dict, List
 PROJECT_ROOT = Path("D:/Project/PH-SHOWOA")
 KAGGLE_EXE = r"C:\Users\LENOVO\miniconda3\envs\phshowoa\Scripts\kaggle.exe"
 CREDS_ROOT = Path("D:/Project/Kaggle/credentials")
-HARVEST_DOWNLOAD_ROOT = Path("D:/Project/Kaggle/output_canonical")
+HARVEST_DOWNLOAD_ROOT = Path("D:/Project/Kaggle/output_canonical_v2")
 DEFAULT_OUTPUT_CSV = PROJECT_ROOT / "outputs" / "ph_showoa_canonical_results.csv"
 
 # Import allocations from dispatch script
@@ -163,10 +163,26 @@ def aggregate_results(output_csv: Path) -> None:
     all_rows.sort(key=lambda r: (inst_order.get(r["instance"], 999), r["run"]))
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_csv, "w", newline="", encoding="utf-8") as f:
+    tmp_csv = output_csv.with_suffix(".tmp")
+    with open(tmp_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         writer.writerows(all_rows)
+
+    # Atomic rename / replace with retry for Windows file locks
+    for attempt in range(5):
+        try:
+            tmp_csv.replace(output_csv)
+            break
+        except Exception:
+            import time
+            time.sleep(1)
+    else:
+        # Fallback if locked
+        with open(output_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+            writer.writeheader()
+            writer.writerows(all_rows)
 
     total_runs = len(all_rows)
     total_feas = sum(instance_feas_counts.values())

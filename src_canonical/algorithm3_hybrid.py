@@ -22,21 +22,14 @@ def update_position_hybrid(
     Algorithm 3. The Hybrid Algorithm: BasedOnWOASHO
     Line 3: p <- random in [0, 1]
     Line 4: if p < pHybrid then
-    Line 5:     newSol <- BasedOnWOAUpdate(...)
-    Line 6: else
-    Line 7:     newSol <- BasedOnSHOUpdate(...)
+    Line 5:     // SHO-based diversification (exploration)
+    Line 6:     candidate <- BasedOnSHOUpdate(current, partner)
+    Line 7: else
+    Line 8:     // WOA-based intensification (exploitation)
+    Line 9:     candidate <- BasedOnWOAUpdate(current)
     """
     p = rng.random()
     if p < p_hybrid:
-        sol = based_on_woa_update(
-            whale=current,
-            best_whale=best_whale,
-            a=a,
-            problem=problem,
-            rng=rng,
-        )
-        return sol, "WOA"
-    else:
         sol = based_on_sho_update(
             hyena=current,
             best_hyena=best_whale,
@@ -46,3 +39,12 @@ def update_position_hybrid(
             mutation_prob=mutation_prob,
         )
         return sol, "SHO"
+    else:
+        sol = based_on_woa_update(
+            whale=current,
+            best_whale=best_whale,
+            a=a,
+            problem=problem,
+            rng=rng,
+        )
+        return sol, "WOA"
