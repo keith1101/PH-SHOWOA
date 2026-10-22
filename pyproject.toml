@@ -3,16 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vrpenstein"
-version = "0.1.0"
-description = "PH-SHOWOA for VRPSPDTW"
+name = "ph-showoa"
+version = "1.0.0"
+description = "Canonical Parallel Hybrid Spotted Hyena Optimizer - Whale Optimization Algorithm (PH-SHOWOA) for VRPSPDTW"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.24"]
-
-[project.optional-dependencies]
-cuda = ["numba>=0.60"]
+dependencies = []
 
 [project.scripts]
-ph-showoa = "src.__main__:main"
-vrpenstein = "src.__main__:main"
+ph-showoa = "src_canonical.cli:main"

@@ -1,127 +1,56 @@
-# Python runtime / cache artifacts
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyd
-*.pyo
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+*.so
+
+# Environments & dependencies
 .venv/
 venv/
 env/
 node_modules/
 
-# Editor / OS files
+# Testing & linting
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE & OS files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+*.bak
+*.tmp
 
-# Agent session metadata, transcripts & logs
+# Agent & scratch files
 .agents/
 .codex/
 .licenses/
 .system_generated/
 .user_uploaded/
-docs/[0-9a-fA-F]*-[0-9a-fA-F]*/
-*.metadata.json
+scratch/
+scratch_*.py
+**/scratch/
 task-*.log
-plan.md
-walkthrough.md
-agent_knowledge_transfer.md
-C++*
 
-# C/C++ build artifacts & binary outputs
+# Build & binary artifacts
 build/
-build_*/
-cmake-build-*/
-*.exe
-*.obj
-*.o
-*.pdb
-*.ilk
-*.lib
-*.exp
-src_cpp/build*/
-src_cpp/CMakeFiles/
-src_cpp/CMakeCache.txt
-src_cpp/cmake_install.cmake
-src_cpp/build.ninja
-src_cpp/build.ninja.*
-src_cpp/.ninja_*
-src_cpp/*.exe
-src_cpp/*.obj
-src_cpp/*.o
-src_cpp/*.pdb
-src_cpp/*.ilk
-src_cpp/*.lib
-src_cpp/*.exp
-src_cpp/*.log
-build_log.txt
-
-# LaTeX compilation auxiliary files & compiled PDF documents
-*.aux
-*.bbl
-*.blg
-*.fdb_latexmk
-*.fls
-*.log
-*.out
-*.spl
-*.synctex.gz
-*.synctex(busy)
-*.toc
-*.nav
-*.snm
-*.vrb
-*.dvi
-*.ps
+dist/
+*.egg-info/
 *.pdf
 
-# Kaggle batch generation, kernel packaging & run directories
-check_output/
-batch_results/
-tmp/
-outputs/
-data/
-kaggle-*/
-KAGGLE_RUN_PLAN.md
-KAGGLE_RUN_RULES.md
+# Data & Outputs exclusions (preserve official benchmark txt and verified results)
+data/*
+!data/Wang_Chen/
+data/Wang_Chen/*
+!data/Wang_Chen/*.txt
 
-# Scratch scripts and temporary files
-scratch_*.py
-scratch*/
-**/scratch/
-arxiv_vrpspdtw.json
-
-# Ephemeral Kaggle wave dispatching, launch scripts, and allocation tables
-scripts/dispatch_*.py
-scripts/launch_*.py
-scripts/check_w*.py
-scripts/prepare_and_dispatch_*.py
-scripts/prepare_kaggle_*.ps1
-scripts/push_*.py
-scripts/download_*.py
-scripts/relaunch_*.py
-scripts/*allocations*.json
-scripts/*wave*.py
-scripts/format_ph_showoa.mjs
-scripts/prepare_wave*.py
-scripts/prepare_tafuhihi_job.py
-scripts/prepare_test_job.py
-scripts/prepare_dataset_update.py
-scripts/allocate_free_slots.py
-scripts/check_all_*.py
-scripts/check_live_*.py
-scripts/monitor_harvest_kaggle_new.py
-
-# Benchmark run results & spreadsheets (keep tests/paper_performance_targets*.csv)
-docs/*.xlsx
-docs/*.csv
-*.xlsx
-experiment_results.csv
-PH-SHOWOA - GPU_Hybrid.csv
-paper-deck/
-resource/
+outputs/*
+!outputs/ph_showoa_canonical_results.csv
+!outputs/canonical_best_solutions_summary.csv
+!outputs/canonical_best_solutions_verified.json
+!outputs/figures/
