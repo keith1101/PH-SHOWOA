@@ -122,18 +122,20 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     runs_csv_path = out_dir / "runs.csv"
-    summary_json_path = out_dir / "summary.json"
-    best_sol_path = out_dir / "best_solution.txt"
+    summary_json_path = out_dir / f"summary_{problem.name}_{args.seed_start}_{args.repeats}.json"
+    best_sol_path = out_dir / f"best_solution_{problem.name}.txt"
 
-    with open(runs_csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(CSV_COLUMNS)
+    if not runs_csv_path.exists():
+        with open(runs_csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(CSV_COLUMNS)
 
     results: List[RunResult] = []
     t_start_total = time.time()
 
     for run_idx in range(1, args.repeats + 1):
         run_seed = args.seed_start + (run_idx - 1)
+        global_run_no = run_seed - 42 + 1
         config = SolverConfig(
             pop_size=args.pop_size,
             max_iter=args.max_iter,
@@ -141,7 +143,7 @@ def main() -> None:
             workers=args.workers,
         )
         solver = PHSHOWOASolver(problem, config)
-        res = solver.solve(run_index=run_idx)
+        res = solver.solve(run_index=global_run_no)
         results.append(res)
 
         # Append to CSV

@@ -12,7 +12,7 @@ from typing import Dict, List
 PROJECT_ROOT = Path("D:/Project/PH-SHOWOA")
 KAGGLE_EXE = r"C:\Users\LENOVO\miniconda3\envs\phshowoa\Scripts\kaggle.exe"
 CREDS_ROOT = Path("D:/Project/Kaggle/credentials")
-HARVEST_DOWNLOAD_ROOT = Path("D:/Project/Kaggle/output_canonical_v2")
+HARVEST_DOWNLOAD_ROOT = Path("D:/Project/Kaggle/output_canonical_v3")
 DEFAULT_OUTPUT_CSV = PROJECT_ROOT / "outputs" / "ph_showoa_canonical_results.csv"
 
 # Import allocations from dispatch script
@@ -37,7 +37,7 @@ CSV_COLUMNS = [
 
 def check_and_download_kernels(allocations: List[Dict]) -> bool:
     print("=" * 75)
-    print(f"CHECKING AND HARVESTING CANONICAL KAGGLE KERNELS ({len(allocations)} jobs)")
+    print(f"CHECKING AND HARVESTING BALANCED CANONICAL KERNELS ({len(allocations)} slots)")
     print("=" * 75)
 
     status_counts = Counter()
@@ -66,7 +66,7 @@ def check_and_download_kernels(allocations: List[Dict]) -> bool:
             status = out if out else "NOT FOUND / PENDING"
 
         status_counts[status] += 1
-        print(f"[{idx:2d}/{len(allocations)}] {ref} -> {status}", flush=True)
+        print(f"[{idx:2d}/{len(allocations)}] Slot {job.get('slot_id', idx-1):02d} | {ref} -> {status}", flush=True)
 
     print("\n" + "=" * 75)
     print("STATUS SUMMARY:")
@@ -79,16 +79,16 @@ def check_and_download_kernels(allocations: List[Dict]) -> bool:
         print(f"\nDownloading outputs for {len(completed_jobs)} completed kernels...")
         for idx, job in enumerate(completed_jobs, 1):
             ref = f"{job['owner']}/{job['slug']}"
-            out_dir = HARVEST_DOWNLOAD_ROOT / job["instance"] / job["slug"]
+            out_dir = HARVEST_DOWNLOAD_ROOT / job["slug"]
             out_dir.mkdir(parents=True, exist_ok=True)
 
             # Skip if runs.csv already exists
             has_runs = any(out_dir.rglob("runs.csv"))
             if has_runs:
-                print(f"[{idx:2d}/{len(completed_jobs)}] [{job['instance']}] {ref} already downloaded. Skipping.")
+                print(f"[{idx:2d}/{len(completed_jobs)}] [{job['slug']}] {ref} already downloaded. Skipping.")
                 continue
 
-            print(f"[{idx:2d}/{len(completed_jobs)}] [{job['instance']}] Downloading {ref} -> {out_dir}...")
+            print(f"[{idx:2d}/{len(completed_jobs)}] [{job['slug']}] Downloading {ref} -> {out_dir}...")
             env = get_kaggle_env(job["account"])
             res = subprocess.run([KAGGLE_EXE, "kernels", "output", ref, "-p", str(out_dir)], env=env, capture_output=True, text=True)
             if res.returncode == 0:
@@ -123,9 +123,12 @@ def aggregate_results(output_csv: Path) -> None:
                 for row in reader:
                     raw_inst = row.get("instance", "").strip()
                     inst = CANONICAL_MAP.get(raw_inst.lower(), raw_inst)
+                    seed = int(row.get("seed", 0))
                     run_no = int(row.get("run", 0))
+                    if run_no <= 0 and seed >= 42:
+                        run_no = seed - 42 + 1
+                    
                     key = (inst, run_no)
-
                     if key in seen_keys:
                         continue
                     seen_keys.add(key)
@@ -136,7 +139,6 @@ def aggregate_results(output_csv: Path) -> None:
                     feas_str = row.get("feasible", "False").strip().lower()
                     feas = feas_str in ("true", "1")
                     note = row.get("violation_note", "")
-                    seed = int(row.get("seed", 42 + run_no - 1))
                     elapsed = float(row.get("elapsed_seconds", 0.0))
 
                     clean_row = {
@@ -169,41 +171,41 @@ def aggregate_results(output_csv: Path) -> None:
         writer.writeheader()
         writer.writerows(all_rows)
 
-    # Atomic rename / replace with retry for Windows file locks
-    for attempt in range(5):
-        try:
-            tmp_csv.replace(output_csv)
-            break
-        except Exception:
-            import time
-            time.sleep(1)
-    else:
-        # Fallback if locked
-        with open(output_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
-            writer.writeheader()
-            writer.writerows(all_rows)
+    if tmp_csv.exists():
+        tmp_csv.replace(output_csv)
 
     total_runs = len(all_rows)
-    total_feas = sum(instance_feas_counts.values())
-    feas_rate = (total_feas / total_runs * 100) if total_runs > 0 else 0.0
+    total_feasible = sum(instance_feas_counts.values())
+    feas_pct = (total_feasible / total_runs * 100.0) if total_runs > 0 else 0.0
 
     print(f"Successfully wrote {total_runs} runs across {len(instance_counts)} instances.")
-    print(f"Overall Feasibility: {total_feas}/{total_runs} ({feas_rate:.2f}%)")
-    print(f"Output saved to: {output_csv.resolve()}\n")
+    print(f"Overall Feasibility: {total_feasible}/{total_runs} ({feas_pct:.2f}%)")
+    print(f"Output saved to: {output_csv}")
+
+    # Check incomplete instances
+    incomplete = [inst for inst in SHEET_INSTANCES if instance_counts[inst] < 30]
+    if incomplete:
+        print(f"\nWarning: {len(incomplete)} instances have fewer than 30 runs harvested:")
+        for inst in incomplete[:15]:
+            print(f"  {inst:10s}: {instance_counts[inst]}/30 runs (feas: {instance_feas_counts[inst]})")
+        if len(incomplete) > 15:
+            print(f"  ... and {len(incomplete) - 15} more.")
+    else:
+        print("\nAll 65 instances have achieved FULL 30/30 runs!")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Harvest and aggregate Canonical PH-SHOWOA results from Kaggle")
-    parser.add_argument("--output_csv", type=Path, default=DEFAULT_OUTPUT_CSV, help="Output CSV path")
-    parser.add_argument("--download_only", action="store_true", help="Only check and download kernels")
-    parser.add_argument("--aggregate_only", action="store_true", help="Only aggregate existing downloaded CSVs")
+    parser = argparse.ArgumentParser(description="Harvest Balanced Canonical PH-SHOWOA results from Kaggle")
+    parser.add_argument("--output_csv", type=Path, default=DEFAULT_OUTPUT_CSV, help="Target CSV output path")
+    parser.add_argument("--download_only", action="store_true", help="Only download outputs without aggregating")
+    parser.add_argument("--aggregate_only", action="store_true", help="Only aggregate existing downloaded outputs")
     args = parser.parse_args()
 
     allocations = build_allocations()
 
     if not args.aggregate_only:
-        check_and_download_kernels(allocations)
+        all_done = check_and_download_kernels(allocations)
+        print(f"\nAll 65 kernels completed: {all_done}")
 
     if not args.download_only:
         aggregate_results(args.output_csv)

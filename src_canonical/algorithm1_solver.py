@@ -33,6 +33,32 @@ class SolverConfig:
     iter_max_sa: int = 20
 
 
+def metropolis_accept(
+    current_cost: float,
+    candidate_cost: float,
+    temperature: float,
+    rng: random.Random,
+) -> bool:
+    """
+    Direction B Master SA Metropolis Acceptance Criterion (Algorithm 1, lines 17-25).
+    - If candidate improves (candidate_cost < current_cost): accept deterministically.
+    - If equal (candidate_cost == current_cost): accept (sideways plateau exploration).
+    - If candidate is worse (candidate_cost > current_cost): accept probabilistically
+      with P = exp(-(candidate_cost - current_cost) / (1e-6 + temperature * |current_cost|)).
+    Guards against underflow (arg < -700.0) and non-positive denominators.
+    """
+    if candidate_cost <= current_cost:
+        return True
+    denom = 1e-6 + temperature * abs(current_cost)
+    if denom <= 0.0:
+        return False
+    arg = -(candidate_cost - current_cost) / denom
+    if arg < -700.0:
+        return False
+    prob = math.exp(arg)
+    return rng.random() < prob
+
+
 @dataclass
 class RunResult:
     instance: str
@@ -110,18 +136,12 @@ class PHSHOWOASolver:
                     if not is_solution_feasible(new_sol, self.problem):
                         return w
 
-                    # Lines 15-27: SA Acceptance (strictly nf < cf according to Algorithm 1 line 17)
-                    nf = new_sol.cost
-                    cf = w.cost
-                    if nf < cf:
+                    # Lines 15-27: Direction B SA Acceptance (Algorithm 1 lines 17-25)
+                    # Receives candidate from WOA/SHO (allowing nf > cf) and applies Metropolis criterion
+                    if metropolis_accept(w.cost, new_sol.cost, temperature, w_rng):
                         return new_sol
                     else:
-                        denom = 1e-6 + temperature * abs(cf)
-                        prob = math.exp(-(nf - cf) / denom) if denom > 0 else 0.0
-                        if w_rng.random() < prob:
-                            return new_sol
-                        else:
-                            return w
+                        return w
 
                 if pool is not None:
                     new_population = list(pool.map(update_individual, range(len(population))))

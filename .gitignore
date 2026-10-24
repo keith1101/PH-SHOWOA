@@ -54,3 +54,8 @@ outputs/*
 !outputs/canonical_best_solutions_summary.csv
 !outputs/canonical_best_solutions_verified.json
 !outputs/figures/
+
+build_jobs_canonical/
+graft/
+.ignore
+test_alloc_gen.py
